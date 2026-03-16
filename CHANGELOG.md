@@ -6,6 +6,18 @@ O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.
 
 ---
 
+## [1.2.0] - 2026-03-16
+
+### Adicionado
+
+- **Preview de diffs no Discord** (item 5.3 do plano de evolução)
+  - Intercepta eventos SSE `session.diff` do opencode e exibe alterações de arquivos na thread
+  - Diffs pequenos (< 1500 chars): exibidos inline com syntax highlighting (`diff`)
+  - Diffs grandes: enviados como arquivo `.diff` anexo
+  - Suporte a múltiplos diffs por evento
+
+---
+
 ## [1.1.0] - 2026-03-16
 
 Evolução significativa do produto com foco em segurança, confiabilidade, operações e developer experience. Implementa 18 melhorias identificadas na análise de evolução.

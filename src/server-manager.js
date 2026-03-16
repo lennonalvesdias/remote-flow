@@ -16,7 +16,6 @@ import { OPENCODE_BIN, OPENCODE_BASE_PORT } from './config.js';
 const IGNORED_TYPES = new Set([
   'session.created',
   'session.updated',
-  'session.diff',
   'message.updated',
   'message.part.updated',
   'file.watcher.updated',

@@ -232,6 +232,23 @@ class OpenCodeSession extends EventEmitter {
         break;
       }
 
+      case 'session.diff': {
+        // Diff de alterações em arquivos feitas pelo agente
+        const diffs = props.diffs ?? props.diff ?? event.data?.diffs ?? [];
+        const diffList = Array.isArray(diffs) ? diffs : [diffs];
+
+        for (const diff of diffList) {
+          if (!diff) continue;
+          const filePath = diff.path ?? diff.file ?? diff.filename ?? 'arquivo desconhecido';
+          const content = diff.content ?? diff.patch ?? diff.diff ?? '';
+          if (content) {
+            this.lastActivityAt = new Date();
+            this.emit('diff', { path: filePath, content });
+          }
+        }
+        break;
+      }
+
       default:
         // Ignorar tipos não tratados silenciosamente
         break;

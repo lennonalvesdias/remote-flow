@@ -1,8 +1,12 @@
 // src/stream-handler.js
 // Captura o output do OpenCode e atualiza mensagens Discord em tempo real
 
+import { AttachmentBuilder } from 'discord.js';
 import { debug } from './utils.js';
 import { STREAM_UPDATE_INTERVAL as UPDATE_INTERVAL, DISCORD_MSG_LIMIT as MSG_LIMIT, ENABLE_DM_NOTIFICATIONS } from './config.js';
+
+/** Limite para enviar diff inline vs como arquivo anexo */
+const DIFF_INLINE_LIMIT = 1500;
 
 /**
  * Gerencia o envio de output de uma sessão para uma thread Discord.
@@ -103,6 +107,61 @@ export class StreamHandler {
       this.thread.send(msg).catch((err) =>
         console.error('[StreamHandler] Erro ao enviar mensagem de permissão:', err.message)
       );
+    });
+
+    // Preview de diffs — exibe alterações de arquivos na thread
+    this.session.on('diff', ({ path: filePath, content }) => {
+      this._sendDiffPreview(filePath, content);
+    });
+  }
+
+  /**
+   * Envia um preview de diff formatado na thread.
+   * Diffs pequenos são enviados inline com syntax highlighting.
+   * Diffs grandes são enviados como arquivo .diff anexo.
+   * @param {string} filePath - Caminho do arquivo alterado
+   * @param {string} content - Conteúdo do diff (unified format)
+   */
+  async _sendDiffPreview(filePath, content) {
+    try {
+      const ext = filePath.split('.').pop() || '';
+      const fileName = filePath.split(/[\\/]/).pop();
+
+      if (content.length <= DIFF_INLINE_LIMIT) {
+        // Inline: bloco de código com syntax highlighting baseado na extensão
+        const lang = getDiffLanguage(ext);
+        const formatted = `📝 **${fileName}**\n\`\`\`${lang}\n${content}\n\`\`\``;
+
+        if (formatted.length <= MSG_LIMIT) {
+          await this.thread.send(formatted);
+        } else {
+          // Cabe inline mas excede limite de mensagem — envia como arquivo
+          await this._sendDiffAsFile(fileName, content);
+        }
+      } else {
+        // Diff grande — envia como arquivo anexo
+        await this._sendDiffAsFile(fileName, content);
+      }
+    } catch (err) {
+      debug('StreamHandler', '⚠️ Erro ao enviar diff preview: %s', err.message);
+    }
+  }
+
+  /**
+   * Envia o diff como arquivo .diff anexo.
+   * @param {string} fileName - Nome do arquivo original
+   * @param {string} content - Conteúdo do diff
+   */
+  async _sendDiffAsFile(fileName, content) {
+    const buffer = Buffer.from(content, 'utf-8');
+    const attachment = new AttachmentBuilder(buffer, {
+      name: `${fileName}.diff`,
+      description: `Diff de ${fileName}`,
+    });
+
+    await this.thread.send({
+      content: `📝 **${fileName}** — diff (${Math.round(buffer.length / 1024)} KB)`,
+      files: [attachment],
     });
   }
 
@@ -290,4 +349,21 @@ function splitIntoChunks(text, limit) {
 function mergeContent(existing, newChunk) {
   if (!existing) return newChunk;
   return existing + '\n' + newChunk;
+}
+
+/**
+ * Mapeia extensão de arquivo para linguagem de syntax highlighting do Discord.
+ * Para diffs unified, usa 'diff'. Para outros, tenta mapear a extensão.
+ * @param {string} ext - Extensão do arquivo (sem ponto)
+ * @returns {string}
+ */
+function getDiffLanguage(ext) {
+  const langMap = {
+    js: 'diff', ts: 'diff', jsx: 'diff', tsx: 'diff',
+    py: 'diff', rb: 'diff', go: 'diff', rs: 'diff',
+    java: 'diff', c: 'diff', cpp: 'diff', h: 'diff',
+    css: 'diff', html: 'diff', json: 'diff', yaml: 'diff', yml: 'diff',
+    md: 'diff', sql: 'diff', sh: 'diff', bash: 'diff',
+  };
+  return langMap[ext] ?? 'diff';
 }
