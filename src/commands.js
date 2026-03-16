@@ -14,6 +14,7 @@ import { readdirSync, existsSync } from 'fs';
 import path from 'path';
 import { StreamHandler } from './stream-handler.js';
 import { formatAge } from './utils.js';
+import { listOpenCodeCommands } from './opencode-commands.js';
 
 const PROJECTS_BASE = process.env.PROJECTS_BASE_PATH || 'C:\\projetos';
 const ALLOWED_USERS = (process.env.ALLOWED_USER_IDS || '')
@@ -67,6 +68,21 @@ export const commandDefinitions = [
   new SlashCommandBuilder()
     .setName('projetos')
     .setDescription('Lista os projetos disponíveis em PROJECTS_BASE_PATH'),
+
+  new SlashCommandBuilder()
+    .setName('comando')
+    .setDescription('Executa um comando opencode personalizado na sessão atual')
+    .addStringOption((o) =>
+      o.setName('nome')
+       .setDescription('Nome do comando a executar')
+       .setRequired(true)
+       .setAutocomplete(true)
+    )
+    .addStringOption((o) =>
+      o.setName('args')
+       .setDescription('Argumentos opcionais para o comando')
+       .setRequired(false)
+    ),
 ].map((c) => c.toJSON());
 
 // ─── Handler de comandos ──────────────────────────────────────────────────────
@@ -97,14 +113,29 @@ export async function handleCommand(interaction, sessionManager) {
     await handleStop(interaction, sessionManager);
   } else if (commandName === 'projetos') {
     await handleListProjects(interaction);
+  } else if (commandName === 'comando') {
+    await handleRunCommand(interaction, sessionManager);
   }
 }
 
 /**
- * Responde a autocomplete de projeto para /plan e /build
+ * Responde a autocomplete de projeto para /plan e /build,
+ * e de nome de comando para /comando
  * @param {import('discord.js').AutocompleteInteraction} interaction
  */
 export async function handleAutocomplete(interaction) {
+  const { commandName } = interaction;
+
+  // Autocomplete de nome de comando para /comando
+  if (commandName === 'comando') {
+    const focusedOption = interaction.options.getFocused(true);
+    if (focusedOption.name === 'nome') {
+      await handleCommandoAutocomplete(interaction, focusedOption.value);
+    }
+    return;
+  }
+
+  // Autocomplete de projeto para /plan e /build
   const focused = interaction.options.getFocused().toLowerCase();
   const projects = getProjects();
   const filtered = projects
@@ -323,6 +354,55 @@ async function handleListProjects(interaction) {
     .setFooter({ text: `Base: ${PROJECTS_BASE}` });
 
   await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+}
+
+/**
+ * Fornece sugestões de autocomplete para o campo `nome` do /comando.
+ * Filtra comandos cujo nome começa com o valor digitado (case-insensitive).
+ * @param {import('discord.js').AutocompleteInteraction} interaction
+ * @param {string} focusedValue - Valor digitado pelo usuário
+ */
+async function handleCommandoAutocomplete(interaction, focusedValue) {
+  const commands = await listOpenCodeCommands();
+  const lowerValue = focusedValue.toLowerCase();
+
+  const choices = commands
+    .filter((cmd) => cmd.name.startsWith(lowerValue))
+    .slice(0, 25)
+    .map((cmd) => ({
+      name: cmd.description !== cmd.name ? `${cmd.name} — ${cmd.description}` : cmd.name,
+      value: cmd.name,
+    }));
+
+  await interaction.respond(choices);
+}
+
+/**
+ * Executa um comando opencode personalizado na sessão atual da thread.
+ * @param {import('discord.js').ChatInputCommandInteraction} interaction
+ * @param {import('./session-manager.js').SessionManager} sessionManager
+ */
+async function handleRunCommand(interaction, sessionManager) {
+  const commandName = interaction.options.getString('nome', true);
+  const args = interaction.options.getString('args') ?? '';
+
+  // Verifica se estamos em uma thread com sessão ativa
+  const threadId = interaction.channelId;
+  const session = sessionManager.getByThread(threadId);
+
+  if (!session) {
+    return interaction.reply({
+      content: '❌ Nenhuma sessão ativa nesta thread. Use `/plan` ou `/build` para iniciar uma.',
+      ephemeral: true,
+    });
+  }
+
+  // Monta a string do comando e envia para a sessão
+  const commandText = args.trim() ? `/${commandName} ${args.trim()}` : `/${commandName}`;
+
+  await interaction.deferReply();
+  await session.sendMessage(commandText);
+  await interaction.editReply(`⚙️ Comando \`${commandText}\` enviado para a sessão.`);
 }
 
 // ─── Handler de interações (select menus, botões) ─────────────────────────────
