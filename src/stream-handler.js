@@ -76,6 +76,25 @@ export class StreamHandler {
       console.error('[StreamHandler] ❌ Erro na sessão:', err.message);
       // status 'error' já tratado via listener 'status'
     });
+
+    // Notifica a thread quando uma permissão é solicitada ou aprovada
+    this.session.on('permission', ({ status, toolName, description, error }) => {
+      let msg;
+      if (status === 'approving') {
+        msg = `🔐 **Permissão solicitada** para \`${toolName}\`${description ? ` — ${description}` : ''}\nAprovando automaticamente...`;
+      } else if (status === 'approved') {
+        msg = `✅ **Permissão aprovada** para \`${toolName}\``;
+      } else if (status === 'failed') {
+        msg = `❌ **Falha ao aprovar permissão** para \`${toolName}\`: ${error}`;
+      } else {
+        // status === 'unknown'
+        msg = `⚠️ **Permissão solicitada** (não foi possível identificar a ferramenta)${error ? `: ${error}` : ''}`;
+      }
+
+      this.thread.send(msg).catch((err) =>
+        console.error('[StreamHandler] Erro ao enviar mensagem de permissão:', err.message)
+      );
+    });
   }
 
   /**

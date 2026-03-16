@@ -177,13 +177,56 @@ class OpenCodeSession extends EventEmitter {
       }
 
       case 'permission.asked': {
-        const permissionId = props.id ?? props.permissionId ?? props.permission?.id;
-        if (permissionId) {
-          this.server.client
-            .approvePermission(this.apiSessionId, permissionId)
-            .catch((err) => console.error('[OpenCodeSession] Erro ao aprovar permissão:', err.message));
-          debug('OpenCodeSession', '✅ Permissão aprovada automaticamente: %s', permissionId);
+        // Tenta extrair o ID da permissão de múltiplos caminhos possíveis
+        const permissionId =
+          props.id ??
+          props.permissionId ??
+          props.permission?.id ??
+          event.data?.id;
+
+        // Extrai metadados úteis para exibir no Discord
+        const toolName =
+          props.toolName ??
+          props.tool?.name ??
+          props.permission?.toolName ??
+          props.title ??
+          'ferramenta desconhecida';
+
+        const description =
+          props.description ??
+          props.permission?.description ??
+          props.title ??
+          null;
+
+        debug('OpenCodeSession', '🔐 Permissão solicitada — id=%s tool=%s props=%O', permissionId, toolName, props);
+
+        if (!permissionId) {
+          console.error('[OpenCodeSession] ⚠️  Evento permission.asked sem ID. Evento completo:', JSON.stringify(event, null, 2));
+          this.emit('permission', { status: 'unknown', toolName, description, error: 'ID não encontrado no evento' });
+          break;
         }
+
+        // Notifica o Discord antes de tentar aprovar
+        this.emit('permission', { status: 'approving', permissionId, toolName, description });
+
+        // Tenta aprovar com retry (até 3 tentativas)
+        const tryApprove = async (attempt = 1) => {
+          try {
+            await this.server.client.approvePermission(this.apiSessionId, permissionId);
+            debug('OpenCodeSession', '✅ Permissão aprovada: %s (tentativa %d)', permissionId, attempt);
+            this.emit('permission', { status: 'approved', permissionId, toolName, description });
+          } catch (err) {
+            console.error(`[OpenCodeSession] ❌ Erro ao aprovar permissão (tentativa ${attempt}):`, err.message);
+            if (attempt < 3) {
+              setTimeout(() => tryApprove(attempt + 1), 1000 * attempt);
+            } else {
+              console.error('[OpenCodeSession] ❌ Falha definitiva ao aprovar permissão:', permissionId);
+              this.emit('permission', { status: 'failed', permissionId, toolName, description, error: err.message });
+            }
+          }
+        };
+
+        tryApprove();
         break;
       }
 
