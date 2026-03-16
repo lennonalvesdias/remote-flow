@@ -7,11 +7,7 @@ import { spawn } from 'child_process';
 import { EventEmitter } from 'events';
 import { OpenCodeClient } from './opencode-client.js';
 import { debug } from './utils.js';
-
-// ─── Configuração ─────────────────────────────────────────────────────────────
-
-const OPENCODE_BIN = process.env.OPENCODE_BIN || 'opencode';
-const OPENCODE_BASE_PORT = parseInt(process.env.OPENCODE_BASE_PORT || '4100', 10);
+import { OPENCODE_BIN, OPENCODE_BASE_PORT } from './config.js';
 
 /**
  * Tipos SSE que nunca carregam sessionID em properties.sessionID

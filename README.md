@@ -1,6 +1,6 @@
 # OpenCode Discord Bridge
 
-> Use o `opencode` CLI do seu Windows pelo iPhone, via Discord.
+> Use o `opencode` CLI do seu Windows/Linux pelo iPhone, via Discord.
 
 Bot Discord que expõe seus agentes `plan` e `build` do OpenCode como sessões interativas em threads — replicando no celular a mesma experiência conversacional que você tem no terminal.
 
@@ -9,33 +9,38 @@ Bot Discord que expõe seus agentes `plan` e `build` do OpenCode como sessões i
 ## Como funciona
 
 ```
-iPhone (Discord) ──WebSocket──▶ Bot (Windows) ──spawn──▶ opencode CLI
-                 ◀─────────────  stdout em tempo real
+iPhone (Discord) ──WebSocket──▶ Bot (Windows/Linux/Docker) ──HTTP/SSE──▶ opencode serve
+                 ◀─────────────  output em tempo real via SSE
 ```
 
-O bot roda **localmente no seu Windows**, conecta ao Discord via WebSocket (sem abrir portas), e para cada `/plan` ou `/build` cria uma thread Discord com streaming do output em tempo real. Você responde ao agente digitando na thread.
+O bot roda **localmente na sua máquina** (ou em Docker), conecta ao Discord via WebSocket (sem abrir portas), e para cada `/plan` ou `/build` cria uma thread Discord com streaming do output em tempo real. Você responde ao agente digitando na thread.
 
 ## Pré-requisitos
 
-- Windows 10/11
-- Node.js 18+
+- Node.js 18+ (ou Docker)
 - `opencode` instalado e no PATH
 - Conta Discord + bot criado no [Developer Portal](https://discord.com/developers/applications)
 
 ## Setup rápido
 
-```powershell
+```bash
 # 1. Instale dependências
 npm install
 
 # 2. Configure
-copy .env.example .env
+cp .env.example .env
 # Edite .env com as variáveis conforme seção "Configuração (.env)"
 
 # 3. Teste
 node src/index.js
 
-# 4. (Opcional) Instale como serviço Windows
+# 4. (Opcional) Via Docker
+docker compose up -d
+```
+
+### Instalação como serviço (Windows)
+
+```powershell
 # Execute o PowerShell como Administrador:
 powershell -ExecutionPolicy Bypass -File scripts\install-service.ps1
 ```
@@ -50,12 +55,94 @@ powershell -ExecutionPolicy Bypass -File scripts\install-service.ps1
 | `/status` | Status da sessão na thread atual |
 | `/parar` | Encerra sessão da thread atual |
 | `/projetos` | Lista projetos disponíveis |
+| `/comando [nome]` | Executa comando opencode personalizado |
+| `/historico` | Baixa o output completo da sessão como .txt |
 
-Dentro de qualquer thread de sessão, **qualquer mensagem** é enviada diretamente ao stdin do OpenCode.
+Dentro de qualquer thread de sessão, **qualquer mensagem** é enviada diretamente ao agente OpenCode.
+
+### Comandos inline (na thread)
+
+| Comando | O que faz |
+|---------|-----------|
+| `/stop` ou `/parar` | Encerra a sessão atual |
+| `/status` | Mostra status da sessão |
 
 ## Múltiplas sessões
 
-Cada sessão roda em sua própria thread Discord, completamente isolada. Você pode ter várias sessões abertas simultaneamente em projetos diferentes.
+Cada sessão roda em sua própria thread Discord, completamente isolada. Você pode ter até 3 sessões ativas simultaneamente por usuário (configurável via `MAX_SESSIONS_PER_USER`).
+
+---
+
+## Segurança
+
+- **Ownership de sessão**: Apenas o criador pode controlar a sessão (mensagens na thread de outro usuário são ignoradas). Configurável com `ALLOW_SHARED_SESSIONS=true`.
+- **Rate limiting**: Máximo de 5 comandos por minuto por usuário.
+- **Limite de sessões**: Máximo de 3 sessões ativas por usuário (configurável).
+- **Sanitização de env vars**: O processo `opencode serve` recebe apenas variáveis necessárias (PATH, HOME, OPENCODE_*, ANTHROPIC_*). O `DISCORD_TOKEN` e outras credenciais nunca são repassados.
+- **Path traversal protection**: Validação de caminho impede acesso a diretórios fora do `PROJECTS_BASE_PATH`.
+
+---
+
+## Operações
+
+### Health check
+
+O bot expõe um endpoint HTTP de health check:
+
+```bash
+curl http://localhost:9090/health
+# {"status":"ok","uptime":3600,"sessions":{"total":5,"active":2}}
+```
+
+Configurável via `HEALTH_PORT` (padrão: 9090). Integrado ao Docker HEALTHCHECK.
+
+### Docker
+
+```bash
+# Build e run
+docker compose up -d
+
+# Ou manualmente
+docker build -t opencode-discord .
+docker run --env-file .env -v /caminho/projetos:/projects opencode-discord
+```
+
+### Graceful shutdown
+
+Ao receber SIGINT/SIGTERM, o bot:
+1. Notifica todas as threads ativas ("Bot reiniciando...")
+2. Encerra sessões com timeout de 10s
+3. Para todos os servidores opencode
+
+### Timeout de sessão
+
+Sessões inativas por mais de 30 minutos (configurável via `SESSION_TIMEOUT_MS`) são automaticamente encerradas com notificação na thread.
+
+### Reconexão SSE
+
+Se a conexão SSE com o `opencode serve` cair, o bot reconecta automaticamente com backoff exponencial (1s → 30s).
+
+### Notificação DM
+
+Quando habilitado (`ENABLE_DM_NOTIFICATIONS=true`), o bot envia uma mensagem direta ao criador da sessão quando o agente termina de processar, com preview do último output.
+
+---
+
+## Testes
+
+```bash
+# Rodar testes
+npm test
+
+# Rodar uma vez (CI)
+npm run test:ci
+```
+
+Cobertura de testes: utils, SSE parser, config/path validation, rate limiter, stream chunking.
+
+### CI/CD
+
+O projeto usa GitHub Actions para CI automático (Node 18/20/22) em push para `main` e PRs.
 
 ---
 
@@ -74,6 +161,13 @@ Cada sessão roda em sua própria thread Discord, completamente isolada. Você p
 | `DISCORD_ALLOWED_CHANNEL_ID` | ❌ | (vazio) | Restringe a um canal |
 | `DISCORD_MSG_LIMIT` | ❌ | `1900` | Máx. caracteres por mensagem |
 | `STREAM_UPDATE_INTERVAL` | ❌ | `1500` | Intervalo de atualização (ms) |
+| `ALLOW_SHARED_SESSIONS` | ❌ | `false` | Permite controle entre usuários |
+| `MAX_SESSIONS_PER_USER` | ❌ | `3` | Limite de sessões ativas por usuário |
+| `SESSION_TIMEOUT_MS` | ❌ | `1800000` | Timeout de inatividade (30 min) |
+| `HEALTH_PORT` | ❌ | `9090` | Porta do endpoint de health check |
+| `ENABLE_DM_NOTIFICATIONS` | ❌ | `false` | Notificação DM ao fim de sessão |
+| `OPENCODE_BASE_PORT` | ❌ | `4100` | Porta base dos servidores opencode |
+| `OPENCODE_TIMEOUT_MS` | ❌ | `10000` | Timeout HTTP para opencode |
 
 ---
 
@@ -170,110 +264,15 @@ PROJECTS_BASE_PATH=C:\Users\lenno\Projects
 
 Agora, quando usar `/plan`, o bot mostrará: `projeto-a`, `projeto-b`, `projeto-c`.
 
-**Passos:**
-
-1. Abra o File Explorer
-2. Navegue até a pasta que contém seus projetos
-3. Clique na barra de endereço e copie o caminho (pode usar `\` ou `/` — ambos funcionam)
-4. Cole no `.env`:
-
-```env
-PROJECTS_BASE_PATH=C:\Users\lenno\Projects
-```
-
 ---
 
-#### 5. `OPENCODE_BIN` (opcional, padrão: `opencode`)
-
-Caminho para o executável do `opencode`. Se o comando `opencode` funciona no seu PowerShell/CMD, deixe como está.
-
-**Para verificar:** Abra PowerShell e execute:
-
-```powershell
-opencode --version
-```
-
-Se funcionar, não mude nada. Se não funcionar, você precisa do caminho completo.
-
-**Para encontrar o caminho:**
-
-1. Abra PowerShell como administrador
-2. Execute: `get-command opencode` ou procure em `C:\Users\SeuUsuário\AppData\Roaming\npm\`
-3. Cole o caminho completo no `.env`:
-
-```env
-OPENCODE_BIN=C:\Users\lenno\AppData\Roaming\npm\opencode.cmd
-```
-
----
-
-#### 6. `ALLOWED_USER_IDS` (opcional, mas recomendado)
+#### 5. `ALLOWED_USER_IDS` (opcional, mas recomendado)
 
 Restringe o uso do bot a usuários específicos do Discord. Deixe vazio para permitir qualquer membro do servidor.
-
-**Passos:**
-
-1. Abra Discord e vá para **Settings** → **Advanced** → habilite **"Developer Mode"** (se ainda não fez)
-2. Clique com botão direito no seu nome de usuário e selecione **"Copy User ID"**
-3. Cole no `.env`. Para múltiplos usuários, separe com vírgula:
-
-```env
-ALLOWED_USER_IDS=123456789012345678
-```
-
-Ou:
 
 ```env
 ALLOWED_USER_IDS=123456789012345678,987654321098765432
 ```
-
-> **Deixar vazio:** Se remover esta linha ou deixar em branco, o bot aceita comandos de qualquer membro do servidor.
-
----
-
-#### 7. `DISCORD_ALLOWED_CHANNEL_ID` (opcional)
-
-Restringe o bot a aceitar mensagens apenas de threads criadas dentro de um canal específico. Útil se você quer usar o bot apenas em um canal dedicado.
-
-**Passos:**
-
-1. Clique com botão direito no canal desejado
-2. Selecione **"Copy Channel ID"**
-3. Descomente e cole no `.env`:
-
-```env
-DISCORD_ALLOWED_CHANNEL_ID=123456789012345678
-```
-
-> **Deixar comentado:** Se remover o `#` ou deixar vazio, o bot aceita de qualquer canal.
-
----
-
-#### 8. `DISCORD_MSG_LIMIT` (opcional, padrão: `1900`)
-
-Limite máximo de caracteres por mensagem Discord. O Discord tem limite rígido de 2000 caracteres; o padrão de 1900 deixa margem para formatação de blocos de código.
-
-```env
-DISCORD_MSG_LIMIT=1900
-```
-
-> Não precisa mudar a menos que você saiba o que está fazendo.
-
----
-
-#### 9. `STREAM_UPDATE_INTERVAL` (opcional, padrão: `1500`)
-
-Intervalo em milissegundos entre atualizações da mensagem durante o streaming do output. Valores menores = mais em tempo real, mas maior risco de atingir limites de rate limit do Discord (máximo 5 edições por segundo).
-
-```env
-STREAM_UPDATE_INTERVAL=1500
-```
-
-**Recomendações:**
-
-- `1500` — padrão, seguro
-- `1000` — mais rápido, mas cuidado com rate limits
-- `2000` — mais lento, ideal se está recebendo erros 429
 
 ---
 
@@ -293,12 +292,39 @@ ALLOWED_USER_IDS=123456789012345678
 
 # Opcional
 OPENCODE_BIN=opencode
+OPENCODE_BASE_PORT=4100
 DISCORD_ALLOWED_CHANNEL_ID=
 DISCORD_MSG_LIMIT=1900
 STREAM_UPDATE_INTERVAL=1500
+
+# Sessões
+MAX_SESSIONS_PER_USER=3
+SESSION_TIMEOUT_MS=1800000
+ALLOW_SHARED_SESSIONS=false
+
+# Operações
+HEALTH_PORT=9090
+ENABLE_DM_NOTIFICATIONS=false
 ```
 
 ---
+
+## Arquitetura
+
+```
+src/
+├── index.js              # Entry point — Discord client, eventos, shutdown
+├── config.js             # Configuração centralizada (env vars)
+├── commands.js           # Slash commands e handlers de interação
+├── session-manager.js    # OpenCodeSession + SessionManager (lifecycle)
+├── server-manager.js     # OpenCodeServer + ServerManager (processos)
+├── opencode-client.js    # Cliente HTTP para API REST do opencode
+├── sse-parser.js         # Parser de Server-Sent Events
+├── stream-handler.js     # Streaming de output para Discord (edição+criação)
+├── opencode-commands.js  # Listagem de comandos customizados do opencode
+├── rate-limiter.js       # Rate limiting por usuário
+└── health.js             # Endpoint HTTP de health check
+```
 
 ## Especificação completa
 

@@ -5,10 +5,7 @@
 
 import { debug } from './utils.js';
 import { parseSSEStream } from './sse-parser.js';
-
-// ─── Configuração ─────────────────────────────────────────────────────────────
-
-const DEFAULT_TIMEOUT_MS = 10_000;
+import { DEFAULT_TIMEOUT_MS } from './config.js';
 
 // ─── Classe principal ─────────────────────────────────────────────────────────
 

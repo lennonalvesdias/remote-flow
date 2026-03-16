@@ -2,9 +2,7 @@
 // Captura o output do OpenCode e atualiza mensagens Discord em tempo real
 
 import { debug } from './utils.js';
-
-const UPDATE_INTERVAL = parseInt(process.env.STREAM_UPDATE_INTERVAL || '1500');
-const MSG_LIMIT = parseInt(process.env.DISCORD_MSG_LIMIT || '1900');
+import { STREAM_UPDATE_INTERVAL as UPDATE_INTERVAL, DISCORD_MSG_LIMIT as MSG_LIMIT, ENABLE_DM_NOTIFICATIONS } from './config.js';
 
 /**
  * Gerencia o envio de output de uma sessão para uma thread Discord.
@@ -48,6 +46,10 @@ export class StreamHandler {
       this._statusQueue.push(async () => {
         await this.flush();
         await this.sendStatusMessage(status);
+        // Notificação DM quando sessão termina processamento (agente idle/finalizado)
+        if (ENABLE_DM_NOTIFICATIONS && (status === 'finished' || status === 'error')) {
+          await this._sendDMNotification(status);
+        }
       });
       this._drainStatusQueue();
     });
@@ -217,6 +219,25 @@ export class StreamHandler {
       }
     } catch (err) {
       console.error('[StreamHandler] Erro ao enviar status:', err.message);
+    }
+  }
+
+  /**
+   * Envia notificação por DM ao criador da sessão.
+   * @param {string} status
+   */
+  async _sendDMNotification(status) {
+    try {
+      const guild = this.thread.guild;
+      const member = await guild.members.fetch(this.session.userId);
+      const icon = status === 'finished' ? '✅' : '❌';
+      const lastOutput = this.session.outputBuffer.slice(-200).trim();
+      const preview = lastOutput ? `\n\`\`\`\n${lastOutput}\n\`\`\`` : '';
+      await member.send(
+        `${icon} **Sessão ${status === 'finished' ? 'concluída' : 'com erro'}** — ${this.session.agent} em \`${this.session.projectPath.split(/[\\/]/).pop()}\`\n👉 <#${this.thread.id}>${preview}`
+      );
+    } catch (err) {
+      debug('StreamHandler', '⚠️ Não foi possível enviar DM: %s', err.message);
     }
   }
 

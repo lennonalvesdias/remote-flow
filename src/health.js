@@ -2,8 +2,7 @@
 // Endpoint HTTP de health check para monitoramento externo e Docker HEALTHCHECK
 
 import { createServer } from 'http';
-
-const HEALTH_PORT = parseInt(process.env.HEALTH_PORT || '9090', 10);
+import { HEALTH_PORT } from './config.js';
 
 /**
  * Inicia um servidor HTTP de health check.

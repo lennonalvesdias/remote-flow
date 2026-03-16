@@ -8,12 +8,7 @@ import { randomUUID } from 'crypto';
 import { basename } from 'path';
 import { stripAnsi, debug } from './utils.js';
 import { ServerManager } from './server-manager.js';
-import { SESSION_TIMEOUT_MS } from './config.js';
-
-// ─── Configuração ─────────────────────────────────────────────────────────────
-
-/** Limite máximo do buffer de output (500 KB) */
-const MAX_BUFFER = 512_000;
+import { SESSION_TIMEOUT_MS, MAX_BUFFER } from './config.js';
 
 /** Intervalo de verificação de timeout (1 min) */
 const TIMEOUT_CHECK_INTERVAL = 60_000;
@@ -250,6 +245,7 @@ class OpenCodeSession extends EventEmitter {
   flushPending() {
     const out = this.pendingOutput;
     this.pendingOutput = '';
+    if (out) this.lastActivityAt = new Date();
     return out;
   }
 

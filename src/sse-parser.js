@@ -28,7 +28,11 @@ export async function parseSSEStream(response, onEvent, onError) {
     let parsedData;
     try {
       parsedData = JSON.parse(rawData);
-    } catch {
+    } catch (parseErr) {
+      // JSON inválido — usa rawData como fallback (esperado para eventos não-JSON)
+      if (typeof globalThis.process !== 'undefined' && process.env.DEBUG) {
+        console.debug('[SSEParser] JSON.parse fallback — tipo=%s erro=%s raw=%s', eventType, parseErr.message, rawData.slice(0, 100));
+      }
       parsedData = rawData;
     }
 

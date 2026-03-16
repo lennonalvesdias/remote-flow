@@ -1,0 +1,121 @@
+# Changelog
+
+Todas as mudanças notáveis deste projeto serão documentadas neste arquivo.
+
+O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
+
+---
+
+## [1.1.0] - 2026-03-16
+
+Evolução significativa do produto com foco em segurança, confiabilidade, operações e developer experience. Implementa 18 melhorias identificadas na análise de evolução.
+
+### Adicionado
+
+- **Suite de testes** com Vitest (33 testes cobrindo utils, sse-parser, config, rate-limiter, stream-handler) (`e601f3c`)
+- **Validação de ownership de sessão** — apenas o criador pode controlar a sessão; configurável via `ALLOW_SHARED_SESSIONS` (`e601f3c`)
+- **Sanitização de env vars** — child process recebe apenas variáveis da whitelist, não vaza `DISCORD_TOKEN` (`e601f3c`)
+- **Rate limiting** por usuário — 5 comandos/minuto, com resposta ephemeral (`e601f3c`)
+- **Limite de sessões** por usuário — padrão 3, configurável via `MAX_SESSIONS_PER_USER` (`e601f3c`)
+- **Timeout de sessão** automático — sessões inativas por 30min são encerradas com notificação na thread (`e601f3c`)
+- **Reconexão SSE** automática com backoff exponencial (1s → 30s) quando a conexão cai (`e601f3c`)
+- **CI/CD** com GitHub Actions — testes em Node 18/20/22 em push e PRs (`e601f3c`)
+- **Docker support** — Dockerfile, docker-compose.yml, `.dockerignore`, process kill cross-platform (`e601f3c`)
+- **Health check endpoint** — `GET /health` na porta 9090 com status, uptime e contagem de sessões (`e601f3c`)
+- **Comando `/historico`** — baixa o output completo da sessão como arquivo .txt (`e601f3c`)
+- **Notificação por DM** — quando habilitado (`ENABLE_DM_NOTIFICATIONS`), envia DM ao criador quando sessão finaliza
+- **Módulo de configuração centralizado** (`src/config.js`) — single source of truth para todas as env vars
+- **Função `createSessionInThread()`** — elimina duplicação na criação de sessão entre slash command e select menu
+- **Função `validateProjectPath()`** — validação de path traversal extraída e reutilizada
+
+### Corrigido
+
+- **Bug `lastActivityAt`** — campo nunca era atualizado durante a vida da sessão; `/status` e `/sessoes` mostravam informação incorreta (`e601f3c`)
+- **Blocos catch vazios** eliminados em `index.js`, `commands.js` e `sse-parser.js` — agora logam erro apropriadamente (`e601f3c`)
+
+### Melhorado
+
+- **Graceful shutdown** — notifica threads ativas antes de encerrar ("Bot reiniciando..."), com timeout de 10s (`e601f3c`)
+- **Config centralizado** — todas as env vars (OPENCODE_BIN, OPENCODE_BASE_PORT, MSG_LIMIT, UPDATE_INTERVAL, MAX_BUFFER, DEFAULT_TIMEOUT_MS, HEALTH_PORT) agora importadas de `src/config.js`
+- **`ALLOWED_USERS`** parseado em único lugar (`src/config.js`) em vez de duplicado em `index.js` e `commands.js`
+
+---
+
+## [1.0.2] - 2026-03-16
+
+### Adicionado
+
+- **Comando `/comando`** para executar comandos opencode personalizados dentro de uma sessão ativa (`19fd06e`)
+- Autocomplete para nomes de comandos (lê de `OPENCODE_COMMANDS_PATH`)
+- Novo módulo `src/opencode-commands.js` para listar comandos customizados do filesystem
+- Documentação de `OPENCODE_COMMANDS_PATH` no `.env.example`
+
+### Melhorado
+
+- **Handling de `permission.asked`** com retry logic e notificações no Discord (`0d122a2`)
+  - Extração de permission ID de múltiplos caminhos possíveis (fallback paths)
+  - Extração de `toolName` e `description` para mensagens no Discord
+  - Eventos tipados `permission` (approving / approved / failed / unknown)
+  - Retry até 3x com backoff linear em caso de falha
+
+---
+
+## [1.0.1] - 2026-03-16
+
+### Melhorado
+
+- **Redução de ruído nos logs de debug** (`f022395`)
+  - Removidos logs de alta frequência no StreamHandler (output event, scheduleUpdate)
+  - Removidos logs stdout/stderr line-by-line no OpenCodeServer
+  - Expandida lista de `IGNORED_TYPES` no SSE para suprimir eventos internos (`session.created`, `session.updated`, etc.)
+  - Sessões não registradas tratadas silenciosamente em vez de logarem warning
+
+---
+
+## [1.0.0] - 2026-03-15
+
+### Adicionado — Release inicial
+
+- **Arquitetura HTTP/SSE** — comunicação com `opencode serve` via REST API + Server-Sent Events (`e09fde1`)
+- **Slash commands** — `/plan`, `/build`, `/sessoes`, `/status`, `/parar`, `/projetos`
+- **Streaming em tempo real** — output do OpenCode editado/criado em mensagens Discord
+- **Gerenciamento de sessões** — múltiplas sessões simultâneas em threads isoladas
+- **Gerenciamento de servidores** — um processo `opencode serve` por projeto, com port allocation automática
+- **Autocomplete de projetos** (RF-04) — lista subpastas de `PROJECTS_BASE_PATH`
+- **Proteção contra path traversal** — validação de caminho nos comandos
+- **Deduplicação de sessão** — impede criar duas sessões para o mesmo projeto
+- **NSSM service** — script PowerShell para instalar como serviço Windows
+- **AGENTS.md** — guidelines para contribuidores AI
+- **README** completo com guia passo-a-passo de configuração do Discord
+
+### Dependências
+
+- `discord.js` ^14.18.0
+- `dotenv` ^16.4.5
+- Override: `undici` ^6.24.1 (compatibilidade discord.js)
+
+---
+
+## Estrutura do Projeto
+
+```
+src/
+├── index.js              # Entry point — Discord client, eventos, shutdown
+├── config.js             # Configuração centralizada (env vars)
+├── commands.js           # Slash commands e handlers de interação
+├── session-manager.js    # OpenCodeSession + SessionManager (lifecycle)
+├── server-manager.js     # OpenCodeServer + ServerManager (processos)
+├── opencode-client.js    # Cliente HTTP para API REST do opencode
+├── sse-parser.js         # Parser de Server-Sent Events
+├── stream-handler.js     # Streaming de output para Discord
+├── opencode-commands.js  # Listagem de comandos customizados
+├── rate-limiter.js       # Rate limiting por usuário
+└── health.js             # Endpoint HTTP de health check
+
+tests/
+├── utils.test.js         # Testes de formatAge, stripAnsi
+├── sse-parser.test.js    # Testes do parser SSE
+├── config.test.js        # Testes de validateProjectPath
+├── rate-limiter.test.js  # Testes do rate limiter
+└── stream-handler.test.js # Testes de splitIntoChunks, mergeContent
+```
