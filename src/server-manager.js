@@ -79,13 +79,20 @@ class OpenCodeServer extends EventEmitter {
    * @returns {Promise<void>} Resolve quando o servidor estiver aceitando conexões
    */
   start() {
+    // No Windows, .cmd precisa ser executado via cmd.exe /c (sem shell:true para evitar DEP0190)
+    const isWindows = process.platform === 'win32';
+    const executable = isWindows ? 'cmd.exe' : OPENCODE_BIN;
+    const spawnArgs  = isWindows
+      ? ['/c', OPENCODE_BIN, 'serve', '--port', String(this.port)]
+      : ['serve', '--port', String(this.port)];
+
     const child = spawn(
-      OPENCODE_BIN,
-      ['serve', '--port', String(this.port)],
+      executable,
+      spawnArgs,
       {
         cwd: this.projectPath,
         stdio: ['ignore', 'pipe', 'pipe'],
-        detached: process.platform !== 'win32',
+        detached: !isWindows,
         env: {
           ...sanitizeEnvForChild(),
           OPENCODE_DISABLE_AUTOUPDATE: 'true',
@@ -117,6 +124,7 @@ class OpenCodeServer extends EventEmitter {
     });
 
     child.stderr.on('data', (chunk) => {
+      console.error('[OpenCodeServer] ⚠️  stderr: %s', chunk.toString().trim());
     });
 
     // ── Tratamento de encerramento / reinicialização ───────────────────────────

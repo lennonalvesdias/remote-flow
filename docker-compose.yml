@@ -6,4 +6,5 @@ services:
       - ${PROJECTS_BASE_PATH:-.}:/projects
     environment:
       - PROJECTS_BASE_PATH=/projects
+      - OPENCODE_BIN=opencode
     restart: unless-stopped

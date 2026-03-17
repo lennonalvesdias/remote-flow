@@ -16,7 +16,7 @@ import path from 'path';
 import { StreamHandler } from './stream-handler.js';
 import { formatAge, debug } from './utils.js';
 import { listOpenCodeCommands } from './opencode-commands.js';
-import { PROJECTS_BASE, ALLOWED_USERS, validateProjectPath, MAX_SESSIONS_PER_USER } from './config.js';
+import { PROJECTS_BASE, ALLOWED_USERS, validateProjectPath, MAX_SESSIONS_PER_USER, ALLOW_SHARED_SESSIONS } from './config.js';
 import { RateLimiter } from './rate-limiter.js';
 
 const commandRateLimiter = new RateLimiter({ maxActions: 5, windowMs: 60_000 });
@@ -499,7 +499,7 @@ export async function handleInteraction(interaction, sessionManager) {
   if (interaction.customId.startsWith('confirm_stop_')) {
     const sessionId = interaction.customId.replace('confirm_stop_', '');
     const targetSession = sessionManager.getById(sessionId);
-    const allowShared = process.env.ALLOW_SHARED_SESSIONS === 'true';
+    const allowShared = ALLOW_SHARED_SESSIONS;
     if (targetSession && !allowShared && targetSession.userId !== interaction.user.id) {
       return interaction.update({ content: '🚫 Apenas o criador da sessão pode encerrá-la.', components: [] });
     }

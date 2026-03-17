@@ -2,6 +2,9 @@ FROM node:20-slim
 
 WORKDIR /app
 
+# Instala o opencode CLI globalmente no container Linux
+RUN npm install -g opencode-ai@latest
+
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
