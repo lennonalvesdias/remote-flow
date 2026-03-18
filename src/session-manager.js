@@ -77,6 +77,7 @@ class OpenCodeSession extends EventEmitter {
     this.createdAt = new Date();
     this.lastActivityAt = new Date();
     this.closedAt = null;
+    this._pendingTimeouts = [];
   }
 
   /**
@@ -144,6 +145,12 @@ class OpenCodeSession extends EventEmitter {
    * Encerra a sessão, remove o registro no servidor e emite os eventos finais.
    */
   async close() {
+    // Cancela timeouts de retry de permissão pendentes
+    for (const tid of this._pendingTimeouts) {
+      clearTimeout(tid);
+    }
+    this._pendingTimeouts = [];
+
     if (this.apiSessionId && this.server) {
       try {
         await this.server.client.deleteSession(this.apiSessionId);
@@ -287,7 +294,12 @@ class OpenCodeSession extends EventEmitter {
           } catch (err) {
             console.error(`[OpenCodeSession] ❌ Erro ao aprovar permissão (tentativa ${attempt}):`, err.message);
             if (attempt < 3) {
-              setTimeout(() => tryApprove(attempt + 1), 1000 * attempt);
+              const tid = setTimeout(() => {
+                const idx = this._pendingTimeouts.indexOf(tid);
+                if (idx !== -1) this._pendingTimeouts.splice(idx, 1);
+                tryApprove(attempt + 1);
+              }, 1000 * attempt);
+              this._pendingTimeouts.push(tid);
             } else {
               console.error('[OpenCodeSession] ❌ Falha definitiva ao aprovar permissão:', permissionId);
               this.emit('permission', { status: 'failed', permissionId, toolName, description, error: err.message });
@@ -415,9 +427,11 @@ class SessionManager {
     this._threadIndex.set(threadId, sessionId);
 
     session.once('close', () => {
+      // Remove do índice de threads imediatamente para evitar duplicação
+      this._threadIndex.delete(threadId);
+      // Mantém a sessão no cache por 10 min para consultas de status
       setTimeout(() => {
         this._sessions.delete(sessionId);
-        this._threadIndex.delete(threadId);
         debug('SessionManager', '🗑️ Sessão removida do cache: %s', sessionId);
       }, 10 * 60 * 1000);
     });

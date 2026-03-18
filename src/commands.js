@@ -16,12 +16,48 @@ import path from 'path';
 import { StreamHandler } from './stream-handler.js';
 import { formatAge, debug } from './utils.js';
 import { listOpenCodeCommands } from './opencode-commands.js';
-import { PROJECTS_BASE, ALLOWED_USERS, validateProjectPath, MAX_SESSIONS_PER_USER, ALLOW_SHARED_SESSIONS } from './config.js';
+import { PROJECTS_BASE, ALLOWED_USERS, validateProjectPath, MAX_SESSIONS_PER_USER, ALLOW_SHARED_SESSIONS, MAX_GLOBAL_SESSIONS } from './config.js';
 import { RateLimiter } from './rate-limiter.js';
 
 const commandRateLimiter = new RateLimiter({ maxActions: 5, windowMs: 60_000 });
 
 const STATUS_EMOJI = { running: '⚙️', waiting_input: '💬', finished: '✅', error: '❌', idle: '💤' };
+
+// ─── Helpers internos ─────────────────────────────────────────────────────────
+
+/**
+ * Valida o nome do projeto e retorna o caminho absoluto.
+ * Combina a validação de path traversal com a verificação de existência.
+ * @param {string} projectName - Nome do projeto
+ * @returns {{ valid: boolean, projectPath: string|null, error: string|null }}
+ */
+function validateAndGetProjectPath(projectName) {
+  const { valid, projectPath, error } = validateProjectPath(projectName);
+  if (!valid) return { valid: false, projectPath: null, error };
+  if (!existsSync(projectPath)) {
+    return { valid: false, projectPath: null, error: `❌ Projeto "${projectName}" não encontrado.` };
+  }
+  return { valid: true, projectPath, error: null };
+}
+
+/**
+ * Responde a uma interação com mensagem de erro ephemeral.
+ * Verifica se a interação já foi respondida antes de tentar responder.
+ * @param {import('discord.js').Interaction} interaction
+ * @param {string} message
+ */
+async function replyError(interaction, message) {
+  const payload = { content: `❌ ${message}`, flags: MessageFlags.Ephemeral };
+  try {
+    if (interaction.replied || interaction.deferred) {
+      await interaction.followUp(payload);
+    } else {
+      await interaction.reply(payload);
+    }
+  } catch (err) {
+    console.error('[commands] Erro ao enviar mensagem de erro:', err.message);
+  }
+}
 
 // ─── Definições dos comandos ──────────────────────────────────────────────────
 
@@ -98,20 +134,14 @@ export const commandDefinitions = [
 export async function handleCommand(interaction, sessionManager) {
   // Verificação de acesso
   if (ALLOWED_USERS.length > 0 && !ALLOWED_USERS.includes(interaction.user.id)) {
-    return interaction.reply({
-      content: '🚫 Você não tem permissão para usar este bot.',
-      flags: MessageFlags.Ephemeral,
-    });
+    return replyError(interaction, 'Você não tem permissão para usar este bot.');
   }
 
   // Rate limiting por usuário
   const { allowed, retryAfterMs } = commandRateLimiter.check(interaction.user.id);
   if (!allowed) {
     const seconds = Math.ceil(retryAfterMs / 1000);
-    return interaction.reply({
-      content: `⏳ Rate limit atingido. Tente novamente em ${seconds}s.`,
-      flags: MessageFlags.Ephemeral,
-    });
+    return replyError(interaction, `Rate limit atingido. Tente novamente em ${seconds}s.`);
   }
 
   const { commandName } = interaction;
@@ -169,10 +199,18 @@ export async function handleAutocomplete(interaction) {
  * @param {'plan'|'build'} mode
  */
 async function handleStartSession(interaction, sessionManager, mode) {
-  await interaction.deferReply();
-
   let projectName = interaction.options.getString('projeto');
   const promptText = interaction.options.getString('prompt');
+
+  // S-03: Validações de tamanho de input (antes do defer para respostas ephemeral limpas)
+  if (projectName && projectName.length > 256) {
+    return await replyError(interaction, 'Nome do projeto muito longo (máximo 256 caracteres).');
+  }
+  if (promptText && promptText.length > 10000) {
+    return await replyError(interaction, 'Mensagem muito longa (máximo 10.000 caracteres).');
+  }
+
+  await interaction.deferReply();
 
   // Se não passou projeto, mostra selector
   if (!projectName) {
@@ -203,13 +241,10 @@ async function handleStartSession(interaction, sessionManager, mode) {
     });
   }
 
-  // Valida e sanitiza o caminho do projeto (prevenção de path traversal)
-  const { valid, projectPath, error } = validateProjectPath(projectName);
+  // S-01: Valida e sanitiza o caminho do projeto (prevenção de path traversal)
+  const { valid, projectPath, error } = validateAndGetProjectPath(projectName);
   if (!valid) {
     return interaction.editReply(error);
-  }
-  if (!existsSync(projectPath)) {
-    return interaction.editReply(`❌ Projeto \`${projectName}\` não encontrado em \`${PROJECTS_BASE}\`.`);
   }
 
   // Verifica limite de sessões ativas por usuário
@@ -219,6 +254,15 @@ async function handleStartSession(interaction, sessionManager, mode) {
     return interaction.editReply(
       `⚠️ Limite de ${MAX_SESSIONS_PER_USER} sessões ativas atingido. Encerre uma sessão existente com \`/parar\`.`
     );
+  }
+
+  // S-04: Verifica limite global de sessões ativas
+  if (MAX_GLOBAL_SESSIONS > 0) {
+    const totalActive = sessionManager.getAll()
+      .filter((s) => s.status !== 'finished' && s.status !== 'error').length;
+    if (totalActive >= MAX_GLOBAL_SESSIONS) {
+      return await replyError(interaction, `Limite global de sessões atingido (${MAX_GLOBAL_SESSIONS}). Tente novamente mais tarde.`);
+    }
   }
 
   // Verifica se já existe sessão ativa para este projeto
@@ -284,10 +328,7 @@ async function handleStatus(interaction, sessionManager) {
   const session = sessionManager.getByThread(interaction.channelId);
 
   if (!session) {
-    return interaction.reply({
-      content: '❌ Nenhuma sessão OpenCode associada a esta thread.',
-      flags: MessageFlags.Ephemeral,
-    });
+    return replyError(interaction, 'Nenhuma sessão OpenCode associada a esta thread.');
   }
 
   const s = session.toSummary();
@@ -317,10 +358,7 @@ async function handleStop(interaction, sessionManager) {
   const session = sessionManager.getByThread(interaction.channelId);
 
   if (!session) {
-    return interaction.reply({
-      content: '❌ Nenhuma sessão ativa nesta thread.',
-      flags: MessageFlags.Ephemeral,
-    });
+    return replyError(interaction, 'Nenhuma sessão ativa nesta thread.');
   }
 
   // Botão de confirmação
@@ -395,10 +433,7 @@ async function handleHistory(interaction, sessionManager) {
   const session = sessionManager.getByThread(interaction.channelId);
 
   if (!session) {
-    return interaction.reply({
-      content: '❌ Nenhuma sessão associada a esta thread.',
-      flags: MessageFlags.Ephemeral,
-    });
+    return replyError(interaction, 'Nenhuma sessão associada a esta thread.');
   }
 
   const output = session.outputBuffer || '(sem output)';
@@ -429,10 +464,7 @@ async function handleRunCommand(interaction, sessionManager) {
   const session = sessionManager.getByThread(threadId);
 
   if (!session) {
-    return interaction.reply({
-      content: '❌ Nenhuma sessão ativa nesta thread. Use `/plan` ou `/build` para iniciar uma.',
-      ephemeral: true,
-    });
+    return replyError(interaction, 'Nenhuma sessão ativa nesta thread. Use `/plan` ou `/build` para iniciar uma.');
   }
 
   // Monta a string do comando e envia para a sessão
@@ -460,16 +492,10 @@ export async function handleInteraction(interaction, sessionManager) {
 
     await interaction.deferUpdate();
 
-    // Valida e sanitiza o caminho do projeto (prevenção de path traversal)
-    const { valid, projectPath, error } = validateProjectPath(projectName);
+    // S-01: Valida e sanitiza o caminho do projeto (prevenção de path traversal)
+    const { valid, projectPath, error } = validateAndGetProjectPath(projectName);
     if (!valid) {
       return interaction.editReply({ content: error, components: [] });
-    }
-    if (!existsSync(projectPath)) {
-      return interaction.editReply({
-        content: `❌ Projeto \`${projectName}\` não encontrado em \`${PROJECTS_BASE}\`.`,
-        components: [],
-      });
     }
 
     // Verifica se já existe sessão ativa para este projeto

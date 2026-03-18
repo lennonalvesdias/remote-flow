@@ -14,7 +14,7 @@ import { SessionManager } from './session-manager.js';
 import { ServerManager } from './server-manager.js';
 import { handleCommand, handleInteraction, handleAutocomplete, commandDefinitions } from './commands.js';
 import { formatAge, debug } from './utils.js';
-import { ALLOWED_USERS, ALLOW_SHARED_SESSIONS } from './config.js';
+import { ALLOWED_USERS, ALLOW_SHARED_SESSIONS, CHANNEL_FETCH_TIMEOUT_MS, SHUTDOWN_TIMEOUT_MS } from './config.js';
 import { startHealthServer } from './health.js';
 
 // ─── Validação de configuração ────────────────────────────────────────────────
@@ -172,21 +172,30 @@ async function shutdown(signal) {
   console.log(`\n${signal} recebido. Encerrando sessões...`);
   const sessions = sessionManager.getAll().filter((s) => s.status !== 'finished' && s.status !== 'error');
 
+  // Busca canal com timeout para não travar se o Discord estiver inacessível
+  const fetchWithTimeout = (channelId) =>
+    Promise.race([
+      client.channels.fetch(channelId),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('timeout')), CHANNEL_FETCH_TIMEOUT_MS)
+      ),
+    ]);
+
   // Notifica usuários nas threads ativas
   await Promise.allSettled(
     sessions.map(async (s) => {
       try {
-        const channel = await client.channels.fetch(s.threadId);
+        const channel = await fetchWithTimeout(s.threadId);
         if (channel) await channel.send('⚠️ **Bot reiniciando.** Sua sessão será encerrada.');
       } catch {
-        // thread pode já estar arquivada
+        // thread pode já estar arquivada ou Discord inacessível
       }
     })
   );
 
   // Encerra sessões com timeout de segurança
   const closePromise = Promise.allSettled(sessions.map((s) => s.close()));
-  await Promise.race([closePromise, new Promise((r) => setTimeout(r, 10_000))]);
+  await Promise.race([closePromise, new Promise((r) => setTimeout(r, SHUTDOWN_TIMEOUT_MS))]);
 
   await serverManager.stopAll();
   client.destroy();

@@ -3,7 +3,7 @@
 > **Documento vivo** — atualizar conforme issues forem resolvidas, novas forem identificadas ou evoluções forem implementadas.
 
 **Data de criação:** 2026-03-17
-**Última atualização:** 2026-03-17
+**Última atualização:** 2026-03-18
 **Descrição:** Registro centralizado de bugs, code smells, cobertura de testes e ideias de evolução para o projeto `opencode-discord`. Serve como backlog técnico e guia de qualidade para o desenvolvimento contínuo.
 
 ---
@@ -14,14 +14,14 @@
 
 | # | Severidade | Arquivo | Descrição |
 |---|---|---|---|
-| B-01 | 🔴 **CRÍTICO** | `session-manager.js:393-399` | **Race condition no cleanup de sessões** — sessão removida do `_threadIndex` 10 min após fechar; se nova sessão for criada na mesma thread nessa janela, o índice fica duplicado/ambíguo. Fix: separar remoção do `_threadIndex` (imediata) da remoção do cache (10 min). |
-| B-02 | 🔴 **CRÍTICO** | `server-manager.js:197-207` | **Promise rejection não tratada no AbortError** — quando `sseAbortController` é acionado intencionalmente (shutdown), `.then(() => reconnect())` é chamado mesmo assim porque a promise resolve normalmente. Fix: distinguir `AbortError` de erros reais. |
-| B-03 | 🟠 **ALTO** | `index.js:75-99` | **Unhandled rejection em erros de Discord API** — se a interação já foi respondida e o `catch` tenta `reply()` novamente, lança segunda exceção não tratada. Fix: checar `interaction.replied` e `interaction.deferred` antes de responder. |
-| B-04 | 🟠 **ALTO** | `stream-handler.js:222-225` | **Null check ausente em `session.status`** — `this.session` pode virar `null`/`undefined` em cleanup assíncrono; acesso a `this.session.status` explode com `TypeError`. Fix: adicionar guard `this.session &&`. |
-| B-05 | 🟠 **ALTO** | `session-manager.js:280-296` | **Race condition no retry de permissões** — `tryApprove()` usa `setTimeout` fire-and-forget; se a sessão fechar antes do retry, o `server.client` está obsoleto e os timeouts não são cancelados em `close()`. Fix: registrar timeouts em array e cancelar em `close()`. |
-| B-06 | 🟡 **MÉDIO** | `index.js:176-185` | **Thread fetch pode travar no shutdown** — `client.channels.fetch()` durante shutdown pode pendurar indefinidamente se o Discord estiver inacessível. Fix: adicionar timeout de 2 s por fetch. |
-| B-07 | 🟡 **MÉDIO** | `server-manager.js:217-249` | **SSE event dispatch sem try-catch** — se `session.handleSSEEvent()` lançar erro, derruba todo o listener SSE, quebrando o stream para todas as sessões do servidor. Fix: envolver em `try-catch` com `session.emit('error', err)`. |
-| B-08 | 🟡 **MÉDIO** | `stream-handler.js:49-62` | **Status queue sem timeout** — se `flush()` travar (rate limit / rede), a queue de status acumula indefinidamente. Fix: `Promise.race` com timeout de 5 s por item da queue. |
+| B-01 | ✅ **RESOLVIDO** | `session-manager.js:393-399` | **Race condition no cleanup de sessões** — sessão removida do `_threadIndex` 10 min após fechar; se nova sessão for criada na mesma thread nessa janela, o índice fica duplicado/ambíguo. Fix: separar remoção do `_threadIndex` (imediata) da remoção do cache (10 min). |
+| B-02 | ✅ **RESOLVIDO** | `server-manager.js:197-207` | **Promise rejection não tratada no AbortError** — quando `sseAbortController` é acionado intencionalmente (shutdown), `.then(() => reconnect())` é chamado mesmo assim porque a promise resolve normalmente. Fix: distinguir `AbortError` de erros reais. |
+| B-03 | ✅ **RESOLVIDO** (já estava implementado) | `index.js:75-99` | **Unhandled rejection em erros de Discord API** — se a interação já foi respondida e o `catch` tenta `reply()` novamente, lança segunda exceção não tratada. Fix: checar `interaction.replied` e `interaction.deferred` antes de responder. |
+| B-04 | ✅ **RESOLVIDO** | `stream-handler.js:222-225` | **Null check ausente em `session.status`** — `this.session` pode virar `null`/`undefined` em cleanup assíncrono; acesso a `this.session.status` explode com `TypeError`. Fix: adicionar guard `this.session &&`. |
+| B-05 | ✅ **RESOLVIDO** | `session-manager.js:280-296` | **Race condition no retry de permissões** — `tryApprove()` usa `setTimeout` fire-and-forget; se a sessão fechar antes do retry, o `server.client` está obsoleto e os timeouts não são cancelados em `close()`. Fix: registrar timeouts em array e cancelar em `close()`. |
+| B-06 | ✅ **RESOLVIDO** | `index.js:176-185` | **Thread fetch pode travar no shutdown** — `client.channels.fetch()` durante shutdown pode pendurar indefinidamente se o Discord estiver inacessível. Fix: adicionar timeout de 2 s por fetch. |
+| B-07 | ✅ **RESOLVIDO** | `server-manager.js:217-249` | **SSE event dispatch sem try-catch** — se `session.handleSSEEvent()` lançar erro, derruba todo o listener SSE, quebrando o stream para todas as sessões do servidor. Fix: envolver em `try-catch` com `session.emit('error', err)`. |
+| B-08 | ✅ **RESOLVIDO** | `stream-handler.js:49-62` | **Status queue sem timeout** — se `flush()` travar (rate limit / rede), a queue de status acumula indefinidamente. Fix: `Promise.race` com timeout de 5 s por item da queue. |
 
 ---
 
@@ -29,14 +29,14 @@
 
 | # | Arquivo(s) | Descrição |
 |---|---|---|
-| S-01 | `commands.js:206-213` e `commands.js:463-472` | **Duplicação de validação de `projectPath`** — mesma lógica de `validateProjectPath()` + `existsSync()` repetida em dois lugares. Extrair para helper `validateAndGetProjectPath()`. |
-| S-02 | `stream-handler.js`, `index.js`, `server-manager.js` | **Timeouts hardcoded** — valores como `5000`, `10000`, `2000`, `1000` ms espalhados em múltiplos arquivos. Centralizar em `config.js` com variáveis de ambiente. |
-| S-03 | `commands.js:174-175` | **Ausência de validação de input** — `projectName` e `promptText` chegam sem validação de tamanho máximo. Risco de DoS. Limitar a 256 e 10.000 chars respectivamente. |
-| S-04 | `commands.js:215-222` | **Sem limite global de sessões** — limite por usuário existe, mas não há limite total de sessões simultâneas no servidor. Adicionar env var `MAX_GLOBAL_SESSIONS`. |
-| S-05 | `commands.js`, `index.js` | **Respostas de erro inconsistentes** — algumas são `ephemeral`, outras não. Extrair helper `replyError(interaction, message)` que sempre responde ephemeral. |
-| S-06 | `server-manager.js:91-96` | **`OPENCODE_BIN` não validado na inicialização** — se apontar para binário inexistente, o erro é críptico. Validar na inicialização com `execSync('opencode --version')`. |
-| S-07 | `utils.js:24-39` | **Regex ANSI suscetível a ReDoS** — regex artesanal para strip ANSI pode pendurar com input especialmente construído. Considerar biblioteca `strip-ansi`. |
-| S-08 | `server-manager.js:143-167` | **Sem circuit breaker para servidores com falha** — após 3 reinícios o servidor fica em status `error`, mas o usuário pode criar nova sessão imediatamente, reiniciando o ciclo. Adicionar cooldown de 60 s. |
+| S-01 | `commands.js:206-213` e `commands.js:463-472` | ✅ **Duplicação de validação de `projectPath`** — mesma lógica de `validateProjectPath()` + `existsSync()` repetida em dois lugares. Extrair para helper `validateAndGetProjectPath()`. |
+| S-02 | `stream-handler.js`, `index.js`, `server-manager.js` | ✅ **Timeouts hardcoded** — valores como `5000`, `10000`, `2000`, `1000` ms espalhados em múltiplos arquivos. Centralizar em `config.js` com variáveis de ambiente. |
+| S-03 | `commands.js:174-175` | ✅ **Ausência de validação de input** — `projectName` e `promptText` chegam sem validação de tamanho máximo. Risco de DoS. Limitar a 256 e 10.000 chars respectivamente. |
+| S-04 | `commands.js:215-222` | ✅ **Sem limite global de sessões** — limite por usuário existe, mas não há limite total de sessões simultâneas no servidor. Adicionar env var `MAX_GLOBAL_SESSIONS`. |
+| S-05 | `commands.js`, `index.js` | ✅ **Respostas de erro inconsistentes** — algumas são `ephemeral`, outras não. Extrair helper `replyError(interaction, message)` que sempre responde ephemeral. |
+| S-06 | `server-manager.js:91-96` | ✅ **`OPENCODE_BIN` não validado na inicialização** — se apontar para binário inexistente, o erro é críptico. Validar na inicialização com `execSync('opencode --version')`. |
+| S-07 | `utils.js:24-39` | ✅ **Regex ANSI suscetível a ReDoS** — regex artesanal para strip ANSI pode pendurar com input especialmente construído. Considerar biblioteca `strip-ansi`. |
+| S-08 | `server-manager.js:143-167` | ✅ **Sem circuit breaker para servidores com falha** — após 3 reinícios o servidor fica em status `error`, mas o usuário pode criar nova sessão imediatamente, reiniciando o ciclo. Adicionar cooldown de 60 s. |
 
 ---
 
@@ -229,7 +229,21 @@
 
 | Data | Issue | Descrição | Autor |
 |---|---|---|---|
-| — | — | *Nenhuma entrada ainda* | — |
+| 2026-03-18 | B-01 | Race condition no cleanup: `_threadIndex` agora removido imediatamente no evento `close`; `_sessions` mantido em cache por 10 min | AI |
+| 2026-03-18 | B-02 | AbortError em SSE: guard `this.status !== 'stopped'` no `.then()` de `connectSSE` evita reconexão após shutdown intencional | AI |
+| 2026-03-18 | B-04 | Null check em `session.status`: guard `this.session &&` adicionado no `flush()` do StreamHandler | AI |
+| 2026-03-18 | B-05 | Race condition em `tryApprove`: timeouts rastreados em `_pendingTimeouts[]` e cancelados no `close()` | AI |
+| 2026-03-18 | B-06 | Fetch timeout no shutdown: `fetchWithTimeout` com `Promise.race` + `CHANNEL_FETCH_TIMEOUT_MS` | AI |
+| 2026-03-18 | B-07 | SSE dispatch com try-catch: `handleSSEEvent` protegido; erro emitido via `session.emit('error')` | AI |
+| 2026-03-18 | B-08 | Status queue timeout: `Promise.race` com `STATUS_QUEUE_ITEM_TIMEOUT_MS` (5s) por item da fila | AI |
+| 2026-03-18 | S-01 | DRY de validação: helper `validateAndGetProjectPath()` extraído em `commands.js` | AI |
+| 2026-03-18 | S-02 | Timeouts centralizados: 7 novas constantes em `config.js` com suporte a env vars | AI |
+| 2026-03-18 | S-03 | Validação de input: limite de 256 chars em `projectName` e 10.000 em `promptText` | AI |
+| 2026-03-18 | S-04 | Limite global de sessões: `MAX_GLOBAL_SESSIONS` env var adicionada a `config.js` e `commands.js` | AI |
+| 2026-03-18 | S-05 | Erros ephemeral consistentes: helper `replyError()` extraído em `commands.js` | AI |
+| 2026-03-18 | S-06 | Validação do OPENCODE_BIN: `_validateBin()` com `execSync --version` no `ServerManager` | AI |
+| 2026-03-18 | S-07 | ReDoS em ANSI: `stripAnsi` migrado para lib `strip-ansi@7` (pure ESM) | AI |
+| 2026-03-18 | S-08 | Circuit breaker: cooldown `SERVER_CIRCUIT_BREAKER_COOLDOWN_MS` (60s) após 3 reinícios no `ServerManager` | AI |
 
 ---
 

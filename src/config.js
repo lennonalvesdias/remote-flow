@@ -47,10 +47,36 @@ export const SESSION_TIMEOUT_MS = parseInt(process.env.SESSION_TIMEOUT_MS || Str
 /** Limite máximo do buffer de output por sessão (bytes) */
 export const MAX_BUFFER = parseInt(process.env.MAX_BUFFER || '512000', 10);
 
+/** Limite total de sessões simultâneas no servidor (0 = sem limite) */
+export const MAX_GLOBAL_SESSIONS = parseInt(process.env.MAX_GLOBAL_SESSIONS || '0', 10);
+
 // ─── Operações ────────────────────────────────────────────────────────────────
 
 /** Porta do endpoint de health check */
 export const HEALTH_PORT = parseInt(process.env.HEALTH_PORT || '9090', 10);
+
+// ─── Timeouts internos ────────────────────────────────────────────────────────
+
+/** Delay em ms antes de reiniciar servidor OpenCode após crash (padrão: 2000) */
+export const SERVER_RESTART_DELAY_MS = parseInt(process.env.SERVER_RESTART_DELAY_MS || '2000', 10);
+
+/** Delay em ms para leitura do arquivo de log após crash (padrão: 500) */
+export const LOG_FILE_READ_DELAY_MS = parseInt(process.env.LOG_FILE_READ_DELAY_MS || '500', 10);
+
+/** Delay em ms para arquivar thread após conclusão da sessão (padrão: 5000) */
+export const THREAD_ARCHIVE_DELAY_MS = parseInt(process.env.THREAD_ARCHIVE_DELAY_MS || '5000', 10);
+
+/** Timeout em ms por item na fila de status do StreamHandler (padrão: 5000) */
+export const STATUS_QUEUE_ITEM_TIMEOUT_MS = parseInt(process.env.STATUS_QUEUE_ITEM_TIMEOUT_MS || '5000', 10);
+
+/** Timeout em ms para shutdown gracioso do bot (padrão: 10000) */
+export const SHUTDOWN_TIMEOUT_MS = parseInt(process.env.SHUTDOWN_TIMEOUT_MS || '10000', 10);
+
+/** Timeout em ms para fetch de canal Discord durante shutdown (padrão: 2000) */
+export const CHANNEL_FETCH_TIMEOUT_MS = parseInt(process.env.CHANNEL_FETCH_TIMEOUT_MS || '2000', 10);
+
+/** Cooldown em ms após circuit breaker do servidor OpenCode (padrão: 60000) */
+export const SERVER_CIRCUIT_BREAKER_COOLDOWN_MS = parseInt(process.env.SERVER_CIRCUIT_BREAKER_COOLDOWN_MS || '60000', 10);
 
 // ─── Utilitários ──────────────────────────────────────────────────────────────
 

@@ -3,11 +3,19 @@
 
 // ─── Imports ──────────────────────────────────────────────────────────────────
 
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import { EventEmitter } from 'events';
+import net from 'net';
+import { readFile } from 'fs';
 import { OpenCodeClient } from './opencode-client.js';
 import { debug } from './utils.js';
-import { OPENCODE_BIN, OPENCODE_BASE_PORT } from './config.js';
+import {
+  OPENCODE_BIN,
+  OPENCODE_BASE_PORT,
+  SERVER_RESTART_DELAY_MS,
+  LOG_FILE_READ_DELAY_MS,
+  SERVER_CIRCUIT_BREAKER_COOLDOWN_MS,
+} from './config.js';
 
 /**
  * Tipos SSE que nunca carregam sessionID em properties.sessionID
@@ -35,6 +43,22 @@ function sanitizeEnvForChild() {
   );
 }
 
+/**
+ * Verifica se uma porta TCP está disponível no sistema operacional.
+ * @param {number} port
+ * @returns {Promise<boolean>}
+ */
+async function isPortAvailable(port) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once('error', () => resolve(false));
+    server.once('listening', () => {
+      server.close(() => resolve(true));
+    });
+    server.listen(port, '127.0.0.1');
+  });
+}
+
 // ─── OpenCodeServer ───────────────────────────────────────────────────────────
 
 /**
@@ -45,8 +69,9 @@ class OpenCodeServer extends EventEmitter {
   /**
    * @param {string} projectPath - Caminho absoluto do projeto
    * @param {number} port - Porta TCP alocada para este servidor
+   * @param {(() => Promise<number>) | null} [portAllocator] - Callback assíncrono para obter nova porta em retentativas
    */
-  constructor(projectPath, port) {
+  constructor(projectPath, port, portAllocator) {
     super();
     this.projectPath = projectPath;
     this.port = port;
@@ -56,6 +81,8 @@ class OpenCodeServer extends EventEmitter {
     this.client = new OpenCodeClient(this.baseUrl);
     this.sseAbortController = null;
     this.restartCount = 0;
+    this._portAllocator = portAllocator ?? null;
+    this._circuitBreakerUntil = 0;
 
     /** @type {Map<string, object>} Map<apiSessionId, OpenCodeSession> */
     this._sessionRegistry = new Map();
@@ -133,7 +160,22 @@ class OpenCodeServer extends EventEmitter {
     });
 
     child.stderr.on('data', (chunk) => {
-      console.error('[OpenCodeServer] ⚠️  stderr: %s', chunk.toString().trim());
+      const text = chunk.toString().trim();
+      console.error('[OpenCodeServer] ⚠️  stderr: %s', text);
+
+      // Tenta extrair caminho do arquivo de log para diagnóstico melhorado
+      const logMatch = text.match(/check log file at (.+\.log)/i);
+      if (logMatch) {
+        const logPath = logMatch[1].trim();
+        setTimeout(() => {
+          readFile(logPath, 'utf8', (err, content) => {
+            if (!err && content) {
+              const lastLines = content.trim().split('\n').slice(-15).join('\n');
+              console.error('[OpenCodeServer] 📋 Conteúdo do log opencode (%s):\n%s', logPath, lastLines);
+            }
+          });
+        }, LOG_FILE_READ_DELAY_MS);
+      }
     });
 
     // ── Tratamento de encerramento / reinicialização ───────────────────────────
@@ -152,9 +194,32 @@ class OpenCodeServer extends EventEmitter {
 
         this.status = 'starting';
         // NÃO recria a promise — reutiliza a mesma para que getOrCreate() receba o resultado correto
-        setTimeout(() => this._spawnProcess(), 2000);
+        const doRestart = async () => {
+          if (this.status === 'stopped') return;
+          if (this._portAllocator) {
+            try {
+              const newPort = await this._portAllocator();
+              if (newPort !== this.port) {
+                console.log('[OpenCodeServer] 🔀 Trocando porta %d → %d na retentativa', this.port, newPort);
+                this.port = newPort;
+                this.baseUrl = `http://127.0.0.1:${newPort}`;
+                this.client = new OpenCodeClient(this.baseUrl);
+              }
+            } catch (portErr) {
+              console.warn('[OpenCodeServer] ⚠️ Falha ao alocar nova porta, mantendo porta atual: %s', portErr.message);
+            }
+          }
+          this._spawnProcess();
+        };
+        setTimeout(() => doRestart().catch((err) => {
+          console.error('[OpenCodeServer] ❌ Erro fatal durante restart:', err);
+          this.status = 'error';
+          this._readyReject(err);
+        }), SERVER_RESTART_DELAY_MS);
       } else {
         this.status = 'error';
+        this._circuitBreakerUntil = Date.now() + SERVER_CIRCUIT_BREAKER_COOLDOWN_MS;
+        console.warn('[OpenCodeServer] ⚡ Circuit breaker ativado. Cooldown até:', new Date(this._circuitBreakerUntil).toISOString());
         console.error(
           '[OpenCodeServer] 💀 Processo falhou %d vezes — abandonando | porta %d',
           this.restartCount,
@@ -202,8 +267,8 @@ class OpenCodeServer extends EventEmitter {
       },
       reconnect,
     ).then(() => {
-      // Stream encerrou normalmente — reconectar
-      reconnect();
+      // Stream encerrou normalmente — reconectar apenas se não foi parada intencional
+      if (this.status !== 'stopped') reconnect();
     }).catch(reconnect);
 
     debug('OpenCodeServer', '🔌 SSE conectado na porta %d', this.port);
@@ -240,7 +305,12 @@ class OpenCodeServer extends EventEmitter {
     const session = this._sessionRegistry.get(sessionId);
 
     if (session) {
-      session.handleSSEEvent({ ...event, type: actualType });
+      try {
+        session.handleSSEEvent({ ...event, type: actualType });
+      } catch (err) {
+        console.error('[OpenCodeServer] ❌ Erro ao processar evento SSE (sessionId=%s):', sessionId, err.message);
+        session.emit('error', err);
+      }
       return;
     }
 
@@ -316,20 +386,60 @@ class ServerManager {
     this._usedPorts = new Set();
 
     this._nextPort = OPENCODE_BASE_PORT;
+
+    /** @type {Promise<number> | null} Mutex para serializar chamadas concorrentes a _allocatePort */
+    this._allocating = null;
+
+    this._binValidated = false;
   }
 
   /**
-   * Aloca a próxima porta disponível.
-   * @returns {number}
+   * Valida (uma única vez) que o binário opencode existe e é executável.
+   * Lança um erro descritivo se não encontrado, para falhar rápido antes de tentar o spawn.
    * @private
    */
-  _allocatePort() {
-    while (this._usedPorts.has(this._nextPort)) {
-      this._nextPort++;
+  _validateBin() {
+    if (this._binValidated) return;
+    try {
+      execSync(`"${OPENCODE_BIN}" --version`, { stdio: 'ignore', timeout: 5000 });
+      this._binValidated = true;
+    } catch {
+      throw new Error(`[ServerManager] ❌ Binário opencode não encontrado ou não executável: "${OPENCODE_BIN}". Verifique OPENCODE_BIN no .env.`);
     }
-    const port = this._nextPort;
+  }
+
+  /**
+   * Aloca a próxima porta disponível, verificando disponibilidade real no SO.
+   * Serializa chamadas concorrentes para evitar alocação de portas duplicadas.
+   * @returns {Promise<number>}
+   * @private
+   */
+  async _allocatePort() {
+    // Serializa chamadas concorrentes para evitar condição de corrida
+    if (this._allocating) {
+      await this._allocating;
+      return this._allocatePort();
+    }
+    this._allocating = this._doAllocatePort();
+    try {
+      return await this._allocating;
+    } finally {
+      this._allocating = null;
+    }
+  }
+
+  /**
+   * Implementação interna da alocação de porta.
+   * @returns {Promise<number>}
+   * @private
+   */
+  async _doAllocatePort() {
+    let port = this._nextPort;
+    while (this._usedPorts.has(port) || !(await isPortAvailable(port))) {
+      port++;
+    }
     this._usedPorts.add(port);
-    this._nextPort++;
+    this._nextPort = port + 1;
     return port;
   }
 
@@ -339,6 +449,8 @@ class ServerManager {
    * @returns {Promise<OpenCodeServer>}
    */
   async getOrCreate(projectPath) {
+    this._validateBin();
+
     const existing = this._servers.get(projectPath);
 
     if (existing) {
@@ -347,10 +459,21 @@ class ServerManager {
         await existing.awaitReady();
         return existing;
       }
-      // status === 'error' ou 'stopped' — cria novo servidor abaixo
+      // status === 'error' — verificar circuit breaker antes de criar novo servidor
+      if (existing.status === 'error' && Date.now() < existing._circuitBreakerUntil) {
+        const remaining = Math.ceil((existing._circuitBreakerUntil - Date.now()) / 1000);
+        throw new Error(`Servidor em cooldown após múltiplas falhas. Tente novamente em ${remaining}s.`);
+      }
+      // status === 'error' (cooldown expirado) ou 'stopped' — cria novo servidor abaixo
     }
 
-    const server = new OpenCodeServer(projectPath, this._allocatePort());
+    // Libera a porta do servidor anterior para reutilização
+    if (existing) {
+      this._usedPorts.delete(existing.port);
+    }
+
+    const port = await this._allocatePort();
+    const server = new OpenCodeServer(projectPath, port, () => this._allocatePort());
 
     server.on('restart', ({ restartCount }) => {
       console.warn(

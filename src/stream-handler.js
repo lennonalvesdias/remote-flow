@@ -3,7 +3,7 @@
 
 import { AttachmentBuilder } from 'discord.js';
 import { debug } from './utils.js';
-import { STREAM_UPDATE_INTERVAL as UPDATE_INTERVAL, DISCORD_MSG_LIMIT as MSG_LIMIT, ENABLE_DM_NOTIFICATIONS } from './config.js';
+import { STREAM_UPDATE_INTERVAL as UPDATE_INTERVAL, DISCORD_MSG_LIMIT as MSG_LIMIT, ENABLE_DM_NOTIFICATIONS, STATUS_QUEUE_ITEM_TIMEOUT_MS, THREAD_ARCHIVE_DELAY_MS } from './config.js';
 
 /** Limite para enviar diff inline vs como arquivo anexo */
 const DIFF_INLINE_LIMIT = 1500;
@@ -66,14 +66,14 @@ export class StreamHandler {
     this.session.on('close', async () => {
       await this.flush();
       this.stop();
-      // Arquiva a thread após 5 segundos para dar tempo de ler a mensagem final
+      // Arquiva a thread após THREAD_ARCHIVE_DELAY_MS para dar tempo de ler a mensagem final
       setTimeout(async () => {
         try {
           await this.thread.setArchived(true);
         } catch (err) {
           console.error('[StreamHandler] Erro ao arquivar thread:', err.message);
         }
-      }, 5000);
+      }, THREAD_ARCHIVE_DELAY_MS);
     });
 
     // Quando o servidor reinicia — envia aviso e reseta o bloco atual
@@ -192,9 +192,17 @@ export class StreamHandler {
         const fn = this._statusQueue.shift();
         debug('StreamHandler', `⚙️  drenando fila de status | ${this._statusQueue.length + 1} item(s) restante(s)`);
         try {
-          await fn();
+          await Promise.race([
+            fn(),
+            new Promise((_, reject) =>
+              setTimeout(
+                () => reject(new Error('Status queue item timeout')),
+                STATUS_QUEUE_ITEM_TIMEOUT_MS
+              )
+            ),
+          ]);
         } catch (err) {
-          console.error('[StreamHandler] Erro ao processar status:', err.message);
+          console.error('[StreamHandler] ⚠️ Erro ao processar item da fila de status:', err.message);
         }
       }
     } finally {
@@ -233,6 +241,7 @@ export class StreamHandler {
         // Se a mensagem atual ainda tem espaço, edita ela
         if (
           this.currentMessage &&
+          this.session &&
           (this.session.status === 'running' || this.session.status === 'waiting_input') &&
           this.currentMessageLength + chunk.length < MSG_LIMIT
         ) {
