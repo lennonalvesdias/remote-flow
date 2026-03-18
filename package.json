@@ -1,6 +1,7 @@
 {
   "name": "opencode-discord-bridge",
   "version": "1.0.0",
+  "license": "MIT",
   "description": "Bridge between Discord and OpenCode CLI for remote development sessions",
   "main": "src/index.js",
   "type": "module",

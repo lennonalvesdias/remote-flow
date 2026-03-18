@@ -329,3 +329,11 @@ src/
 ## Especificação completa
 
 Veja [`specs/0001/SPEC.md`](specs/0001/SPEC.md) para arquitetura detalhada, decisões de design e roadmap.
+
+---
+
+## 📄 Licença
+
+Distribuído sob a licença [MIT](LICENSE). Consulte o arquivo `LICENSE` para mais informações.
+
+Copyright (c) 2026 [Lennon Dias](https://github.com/lennondias)
