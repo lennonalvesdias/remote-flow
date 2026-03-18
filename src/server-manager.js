@@ -79,6 +79,15 @@ class OpenCodeServer extends EventEmitter {
    * @returns {Promise<void>} Resolve quando o servidor estiver aceitando conexões
    */
   start() {
+    this._spawnProcess();
+    return this._readyPromise;
+  }
+
+  /**
+   * Realiza o spawn do processo. Usado por start() e pelas retentativas internas.
+   * @private
+   */
+  _spawnProcess() {
     // No Windows, .cmd precisa ser executado via cmd.exe /c (sem shell:true para evitar DEP0190)
     const isWindows = process.platform === 'win32';
     const executable = isWindows ? 'cmd.exe' : OPENCODE_BIN;
@@ -142,9 +151,8 @@ class OpenCodeServer extends EventEmitter {
         this.emit('restart', { restartCount: this.restartCount, projectPath: this.projectPath });
 
         this.status = 'starting';
-        this._initReadyPromise();
-
-        setTimeout(() => this.start(), 2000);
+        // NÃO recria a promise — reutiliza a mesma para que getOrCreate() receba o resultado correto
+        setTimeout(() => this._spawnProcess(), 2000);
       } else {
         this.status = 'error';
         console.error(
@@ -152,12 +160,12 @@ class OpenCodeServer extends EventEmitter {
           this.restartCount,
           this.port
         );
-        this.emit('fatal', new Error(`OpenCodeServer falhou após ${this.restartCount} tentativas em ${this.projectPath}`));
-        this._readyReject(new Error(`OpenCodeServer falhou após ${this.restartCount} tentativas`));
+        const fatalErr = new Error(`OpenCodeServer falhou após ${this.restartCount} tentativas em ${this.projectPath}`);
+        this.emit('fatal', fatalErr);
+        // Rejeita a promise original que getOrCreate() está aguardando
+        this._readyReject(fatalErr);
       }
     });
-
-    return this._readyPromise;
   }
 
   /**

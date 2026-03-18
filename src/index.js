@@ -83,6 +83,8 @@ client.on('interactionCreate', async (interaction) => {
     }
   } catch (err) {
     console.error('[interactionCreate] Erro:', err);
+    // Interações de autocomplete não suportam reply/followUp — nada a fazer
+    if (interaction.isAutocomplete()) return;
     const reply = { content: '❌ Ocorreu um erro interno. Por favor, tente novamente.', flags: MessageFlags.Ephemeral };
     try {
       if (interaction.replied || interaction.deferred) {

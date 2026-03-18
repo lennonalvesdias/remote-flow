@@ -13,6 +13,38 @@ import { SESSION_TIMEOUT_MS, MAX_BUFFER } from './config.js';
 /** Intervalo de verificação de timeout (1 min) */
 const TIMEOUT_CHECK_INTERVAL = 60_000;
 
+// ─── Detecção de input aguardado ──────────────────────────────────────────────
+
+/** Padrões que indicam que o agente está aguardando input do usuário */
+const INPUT_PATTERNS = [
+  /\?\s*$/m,            // Linha termina com ?
+  /\(y\/n\)/i,          // (y/n)
+  /\(s\/n\)/i,          // (s/n) — sim/não em PT-BR
+  /\(yes\/no\)/i,       // (yes/no)
+  /\(sim\/não\)/i,      // (sim/não)
+  /escolha:/i,          // escolha:
+  /selecione:/i,        // selecione:
+  /confirma(?!r)/i,     // confirma (mas não "confirmar")
+  /digite:/i,           // digite:
+  /informe:/i,          // informe:
+  /press\s+enter/i,     // press enter
+  /pressione\s+enter/i, // pressione enter
+  /^\s*>\s*$/m,         // Prompt > sozinho na linha
+  /^\s*\d+[).]\s+\S/m,  // Opções numeradas no início da linha: "1) algo" ou "1. algo"
+];
+
+/**
+ * Detecta heuristicamente se o output do agente indica que ele está
+ * aguardando uma resposta do usuário.
+ * @param {string} text - Output recente do agente (últimos ~500 chars)
+ * @returns {boolean}
+ */
+function isWaitingForInput(text) {
+  if (!text || !text.trim()) return false;
+  const tail = text.slice(-500);
+  return INPUT_PATTERNS.some((p) => p.test(tail));
+}
+
 // ─── OpenCodeSession ──────────────────────────────────────────────────────────
 
 /**
@@ -40,6 +72,7 @@ class OpenCodeSession extends EventEmitter {
     this.server = null;
     this.outputBuffer = '';
     this.pendingOutput = '';
+    this._recentOutput = '';
     this.createdAt = new Date();
     this.lastActivityAt = new Date();
     this.closedAt = null;
@@ -84,6 +117,7 @@ class OpenCodeSession extends EventEmitter {
       throw new Error('Sessão encerrada');
     }
 
+    this._recentOutput = '';
     this.status = 'running';
     this.lastActivityAt = new Date();
     this.emit('status', 'running');
@@ -143,10 +177,20 @@ class OpenCodeSession extends EventEmitter {
         const clean = stripAnsi(delta);
         this.outputBuffer += clean;
         this.pendingOutput += clean;
+        this._recentOutput += clean;
+        if (this._recentOutput.length > 2000) {
+          this._recentOutput = this._recentOutput.slice(-1000);
+        }
         this.lastActivityAt = new Date();
 
         if (this.outputBuffer.length > MAX_BUFFER) {
           this.outputBuffer = this.outputBuffer.slice(-MAX_BUFFER);
+        }
+
+        // Se o agente voltou a emitir output enquanto aguardávamos input, retorna a running
+        if (this.status === 'waiting_input') {
+          this.status = 'running';
+          this.emit('status', 'running');
         }
 
         this.emit('output', clean);
@@ -155,9 +199,21 @@ class OpenCodeSession extends EventEmitter {
 
       case 'session.status': {
         const statusType = props.status?.type;
-        if (statusType === 'idle' && this.status === 'running') {
-          this.status = 'idle';
-          this.emit('status', 'finished');
+        if (statusType === 'idle') {
+          if (this.status === 'running') {
+            // Agente concluiu — verifica se está aguardando input
+            if (isWaitingForInput(this._recentOutput)) {
+              this.status = 'waiting_input';
+              this.emit('status', 'waiting_input');
+            } else {
+              this.status = 'idle';
+              this.emit('status', 'finished');
+            }
+          } else if (this.status === 'waiting_input') {
+            // Servidor sinalizou idle novamente — sessão realmente concluída
+            this.status = 'idle';
+            this.emit('status', 'finished');
+          }
         }
         break;
       }
@@ -165,6 +221,15 @@ class OpenCodeSession extends EventEmitter {
       case 'session.idle': {
         // Evento alternativo de conclusão
         if (this.status === 'running') {
+          if (isWaitingForInput(this._recentOutput)) {
+            this.status = 'waiting_input';
+            this.emit('status', 'waiting_input');
+          } else {
+            this.status = 'idle';
+            this.emit('status', 'finished');
+          }
+        } else if (this.status === 'waiting_input') {
+          // Servidor sinalizou idle novamente — sessão realmente concluída
           this.status = 'idle';
           this.emit('status', 'finished');
         }
@@ -250,7 +315,7 @@ class OpenCodeSession extends EventEmitter {
       }
 
       default:
-        // Ignorar tipos não tratados silenciosamente
+        debug('OpenCodeSession', '⚠️ Evento SSE não tratado — tipo=%s props=%s', type, JSON.stringify(props).slice(0, 200));
         break;
     }
   }
@@ -395,8 +460,10 @@ class SessionManager {
     const now = Date.now();
     for (const session of this._sessions.values()) {
       if (session.status === 'finished' || session.status === 'error') continue;
+      // Para sessões aguardando input do usuário, usar timeout duplo
+      const effectiveTimeout = session.status === 'waiting_input' ? SESSION_TIMEOUT_MS * 2 : SESSION_TIMEOUT_MS;
       const inactiveMs = now - session.lastActivityAt.getTime();
-      if (inactiveMs > SESSION_TIMEOUT_MS) {
+      if (inactiveMs > effectiveTimeout) {
         console.log('[SessionManager] ⏰ Sessão expirada por inatividade: %s (%dmin)', session.sessionId, Math.round(inactiveMs / 60_000));
         session.emit('timeout');
         session.close();
@@ -425,4 +492,4 @@ class SessionManager {
 
 // ─── Exports ──────────────────────────────────────────────────────────────────
 
-export { OpenCodeSession, SessionManager };
+export { OpenCodeSession, SessionManager, isWaitingForInput };

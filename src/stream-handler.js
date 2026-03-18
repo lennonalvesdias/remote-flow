@@ -49,6 +49,10 @@ export class StreamHandler {
     this.session.on('status', (status) => {
       this._statusQueue.push(async () => {
         await this.flush();
+        // Reseta hasOutput ao retomar execução para que "Processando..." apareça novamente
+        if (status === 'running') {
+          this.hasOutput = false;
+        }
         await this.sendStatusMessage(status);
         // Notificação DM quando sessão termina processamento (agente idle/finalizado)
         if (ENABLE_DM_NOTIFICATIONS && (status === 'finished' || status === 'error')) {
@@ -217,7 +221,7 @@ export class StreamHandler {
         // Se a mensagem atual ainda tem espaço, edita ela
         if (
           this.currentMessage &&
-          this.session.status === 'running' &&
+          (this.session.status === 'running' || this.session.status === 'waiting_input') &&
           this.currentMessageLength + chunk.length < MSG_LIMIT
         ) {
           const newContent = mergeContent(this.currentRawContent, chunk);
@@ -250,11 +254,12 @@ export class StreamHandler {
   async sendStatusMessage(status) {
     debug('StreamHandler', `📊 sendStatusMessage | status=${status} | hasOutput=${this.hasOutput}`);
     const icons = {
-      running:  '⚙️ **Processando...**',
-      finished: '✅ **Sessão concluída**',
-      error:    '❌ **Sessão encerrada com erro**',
-      restart:  '⚠️ Servidor reiniciando...',
-      idle:     '💤 **Idle**',
+      running:       '⚙️ **Processando...**',
+      finished:      '✅ **Sessão concluída**',
+      error:         '❌ **Sessão encerrada com erro**',
+      restart:       '⚠️ Servidor reiniciando...',
+      idle:          '💤 **Idle**',
+      waiting_input: '💬 **Aguardando sua resposta...**',
     };
 
     const msg = icons[status];
@@ -263,7 +268,13 @@ export class StreamHandler {
     try {
       // Envia "Processando" apenas no início, antes de qualquer output
       if (status === 'running' && !this.hasOutput) {
-        await this.thread.send('⚙️ **Processando...**');
+        await this.thread.send(msg);
+        return;
+      }
+
+      // Sinaliza ao usuário que o agente está aguardando resposta
+      if (status === 'waiting_input') {
+        await this.thread.send(msg);
         return;
       }
 
