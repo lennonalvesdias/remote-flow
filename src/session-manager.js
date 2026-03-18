@@ -73,6 +73,7 @@ class OpenCodeSession extends EventEmitter {
     this.outputBuffer = '';
     this.pendingOutput = '';
     this._recentOutput = '';
+    this._pendingQuestion = null;
     this.createdAt = new Date();
     this.lastActivityAt = new Date();
     this.closedAt = null;
@@ -117,6 +118,7 @@ class OpenCodeSession extends EventEmitter {
       throw new Error('Sessão encerrada');
     }
 
+    this._pendingQuestion = null;
     this._recentOutput = '';
     this.status = 'running';
     this.lastActivityAt = new Date();
@@ -311,6 +313,28 @@ class OpenCodeSession extends EventEmitter {
             this.emit('diff', { path: filePath, content });
           }
         }
+        break;
+      }
+
+      case 'question.asked': {
+        const questionId =
+          props.id ??
+          props.questionId ??
+          event.data?.id;
+
+        const questions = Array.isArray(props.questions)
+          ? props.questions
+          : props.question
+            ? [{ question: props.question }]
+            : [];
+
+        debug('OpenCodeSession', '❓ Pergunta recebida — id=%s qtd=%d', questionId, questions.length);
+
+        this._pendingQuestion = { id: questionId, questions };
+        this.status = 'waiting_input';
+        this.lastActivityAt = new Date();
+        this.emit('status', 'waiting_input');
+        this.emit('question', { questionId, questions });
         break;
       }
 

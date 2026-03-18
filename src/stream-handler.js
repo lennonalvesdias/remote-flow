@@ -117,6 +117,18 @@ export class StreamHandler {
     this.session.on('diff', ({ path: filePath, content }) => {
       this._sendDiffPreview(filePath, content);
     });
+
+    // Exibe perguntas do agente na thread para o usuário responder
+    this.session.on('question', ({ questions }) => {
+      if (!questions.length) return;
+
+      const lines = questions.map(({ question }) => `> ${question}`).join('\n');
+      const msg = `❓ **O agente tem uma pergunta para você:**\n${lines}`;
+
+      this.thread.send(msg).catch((err) =>
+        console.error('[StreamHandler] Erro ao enviar pergunta do agente:', err.message)
+      );
+    });
   }
 
   /**
