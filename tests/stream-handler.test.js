@@ -267,13 +267,13 @@ describe('StreamHandler', () => {
     });
 
     it('chama thread.send quando há conteúdo não-vazio', async () => {
-      handler.currentContent = 'resultado do agente';
+      handler.currentContent = 'resultado do agente\n';
       await handler.flush();
       expect(thread.send).toHaveBeenCalledOnce();
     });
 
     it('limpa currentContent após enviar', async () => {
-      handler.currentContent = 'algum texto';
+      handler.currentContent = 'algum texto\n';
       await handler.flush();
       expect(handler.currentContent).toBe('');
     });
@@ -284,7 +284,7 @@ describe('StreamHandler', () => {
       handler.currentRawContent = 'inicial';
       handler.currentMessageLength = 7;
       session.status = 'running';
-      handler.currentContent = ' continuação do texto';
+      handler.currentContent = ' continuação do texto\n';
       await handler.flush();
       expect(mockMsg.edit).toHaveBeenCalledOnce();
       expect(thread.send).not.toHaveBeenCalled();
@@ -295,7 +295,7 @@ describe('StreamHandler', () => {
 
   describe('scheduleUpdate()', () => {
     it('cria um timer que executa flush após UPDATE_INTERVAL', async () => {
-      handler.currentContent = 'texto para flush';
+      handler.currentContent = 'texto para flush\n';
       handler.scheduleUpdate();
 
       expect(thread.send).not.toHaveBeenCalled();
@@ -900,8 +900,9 @@ describe('StreamHandler', () => {
 
   describe('flush() — comportamentos extras', () => {
     it('pula chunk composto apenas de espaços em branco sem enviar mensagem para ele', async () => {
-      // '   \n' + 2000 'a' → splitIntoChunks retorna primeiro chunk '   ' (whitespace) → pulado
-      handler.currentContent = '   \n' + 'a'.repeat(2000);
+      // '   \n' + 2000 'a' + '\n' → flush processes up to last newline;
+      // first chunk '   ' (whitespace) is skipped, 'a'.repeat(2000) chunk is sent
+      handler.currentContent = '   \n' + 'a'.repeat(2000) + '\n';
       await handler.flush();
       // thread.send é chamado para os chunks 'a', mas não para o chunk em branco
       expect(thread.send).toHaveBeenCalled();

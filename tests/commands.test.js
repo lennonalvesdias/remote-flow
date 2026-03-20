@@ -491,7 +491,8 @@ describe('handleCommand() — comandos adicionais', () => {
     const sm = createSessionManager();
     const interaction = createInteraction({ commandName: 'projetos' });
     await handleCommand(interaction, sm);
-    expect(interaction.reply).toHaveBeenCalled();
+    expect(interaction.deferReply).toHaveBeenCalled();
+    expect(interaction.editReply).toHaveBeenCalled();
   });
 
   it('/historico — com sessão responde com arquivo', async () => {
@@ -851,8 +852,9 @@ describe('handleCommand() — /projetos vazio', () => {
 
     await handleCommand(interaction, sm);
 
-    expect(interaction.reply).toHaveBeenCalledWith(
-      expect.objectContaining({ content: expect.stringContaining('Nenhum projeto') }),
+    expect(interaction.deferReply).toHaveBeenCalled();
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      expect.stringContaining('Nenhum projeto'),
     );
   });
 });
