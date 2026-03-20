@@ -134,6 +134,10 @@ export const commandDefinitions = [
        .setDescription('Argumentos opcionais para o comando')
        .setRequired(false)
     ),
+
+  new SlashCommandBuilder()
+    .setName('diff')
+    .setDescription('Exibe o diff atual do projeto da sessão desta thread'),
 ].map((c) => c.toJSON());
 
 // ─── Handler de comandos ──────────────────────────────────────────────────────
@@ -172,6 +176,8 @@ export async function handleCommand(interaction, sessionManager) {
     await handleHistory(interaction, sessionManager);
   } else if (commandName === 'comando') {
     await handleRunCommand(interaction, sessionManager);
+  } else if (commandName === 'diff') {
+    await handleDiffCommand(interaction, sessionManager);
   }
 }
 
@@ -485,6 +491,75 @@ async function handleRunCommand(interaction, sessionManager) {
   await interaction.deferReply();
   await session.sendMessage(commandText);
   await interaction.editReply(`⚙️ Comando \`${commandText}\` enviado para a sessão.`);
+}
+
+/**
+ * Exibe o diff atual (staged + unstaged) do projeto da sessão na thread.
+ * @param {import('discord.js').ChatInputCommandInteraction} interaction
+ * @param {import('./session-manager.js').SessionManager} sessionManager
+ */
+async function handleDiffCommand(interaction, sessionManager) {
+  const session = sessionManager.getByThread(interaction.channelId);
+  if (!session) {
+    await interaction.reply({ content: '❌ Nenhuma sessão ativa nesta thread.', flags: MessageFlags.Ephemeral });
+    return;
+  }
+
+  await interaction.deferReply();
+
+  const { spawn } = await import('node:child_process');
+
+  let diffOutput = '';
+
+  try {
+    diffOutput = await new Promise((resolve, reject) => {
+      // git diff HEAD mostra tudo que mudou desde o último commit (staged + unstaged)
+      const proc = spawn('git', ['diff', 'HEAD'], {
+        cwd: session.projectPath,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let out = '';
+      let err = '';
+      proc.stdout.on('data', (chunk) => { out += chunk.toString(); });
+      proc.stderr.on('data', (chunk) => { err += chunk.toString(); });
+      proc.on('close', (code) => {
+        if (code !== 0 && err) reject(new Error(err));
+        else resolve(out);
+      });
+      proc.on('error', reject);
+      // Timeout de 10 s para não travar em repos muito grandes
+      const timer = setTimeout(() => { proc.kill(); reject(new Error('Timeout ao executar git diff')); }, 10_000);
+      proc.once('close', () => clearTimeout(timer));
+    });
+  } catch (err) {
+    console.error('[commands] Erro ao executar git diff:', err);
+    await interaction.editReply('❌ Erro ao executar `git diff`: ' + err.message);
+    return;
+  }
+
+  if (!diffOutput.trim()) {
+    await interaction.editReply('✅ Nenhuma mudança detectada no projeto.');
+    return;
+  }
+
+  const MAX_INLINE = 1500;
+  const projectName = path.basename(session.projectPath);
+  const fileName = `${projectName}.diff`;
+
+  try {
+    if (diffOutput.length <= MAX_INLINE) {
+      await interaction.editReply(`📝 **${fileName}**\n\`\`\`diff\n${diffOutput}\`\`\``);
+    } else {
+      const buffer = Buffer.from(diffOutput, 'utf-8');
+      await interaction.editReply({
+        content: `📝 **${fileName}** (arquivo completo — ${diffOutput.length} bytes)`,
+        files: [{ attachment: buffer, name: fileName }],
+      });
+    }
+  } catch (err) {
+    console.error('[commands] Erro ao enviar diff:', err);
+    await interaction.editReply('❌ Erro ao enviar o diff.');
+  }
 }
 
 // ─── Handler de interações (select menus, botões) ─────────────────────────────
