@@ -37,6 +37,7 @@ export class StreamHandler {
     // Estado da permissão interativa pendente (null = nenhuma aguardando)
     this._pendingPermission = null;
     this.sentMessages = []; // mensagens anteriores para correção de tabelas no final
+    this._pendingTableLines = ''; // linhas de tabela retidas entre flushes
   }
 
   /**
@@ -230,7 +231,17 @@ export class StreamHandler {
     const toProcess = this.currentContent.slice(0, lastNewline + 1);
     this.currentContent = this.currentContent.slice(lastNewline + 1);
 
-    const content = convertMarkdownTables(toProcess);
+    // Combina linhas de tabela pendentes do flush anterior com o conteúdo atual
+    const combined = this._pendingTableLines
+      ? this._pendingTableLines + '\n' + toProcess
+      : toProcess;
+    this._pendingTableLines = '';
+
+    const { content, pending } = convertMarkdownTables(combined);
+    this._pendingTableLines = pending;
+
+    // Se nada restou para enviar (tabela ainda incompleta), aguarda próximo flush
+    if (!content.trim()) return;
 
     // Divide em chunks respeitando o limite Discord
     const chunks = splitIntoChunks(content, MSG_LIMIT);
@@ -310,9 +321,35 @@ export class StreamHandler {
 
         // Para estados finais, envia status visual e reseta o bloco atual
         if (status === 'finished' || status === 'error' || status === 'restart') {
+          // Converte e envia quaisquer linhas de tabela retidas ao final do stream
+          const finalInput = this._pendingTableLines + (this.currentContent || '');
+          this._pendingTableLines = '';
+          this.currentContent = '';
+          if (finalInput.trim()) {
+            const { content: finalConverted } = convertMarkdownTables(finalInput, true);
+            if (finalConverted.trim()) {
+              const finalChunks = splitIntoChunks(finalConverted, MSG_LIMIT);
+              for (const chunk of finalChunks) {
+                const merged = mergeContent(this.currentRawContent, chunk);
+                if (merged.length <= MSG_LIMIT && this.currentMessage) {
+                  await this.currentMessage.edit(merged);
+                  this.currentRawContent = merged;
+                  this.currentMessageLength = merged.length;
+                } else {
+                  if (this.currentMessage) {
+                    this.sentMessages.push({ message: this.currentMessage, content: this.currentRawContent });
+                  }
+                  this.currentMessage = await this.thread.send(chunk);
+                  this.currentRawContent = chunk;
+                  this.currentMessageLength = chunk.length;
+                }
+              }
+            }
+          }
+
           // Corrige tabelas em mensagens anteriores (overflow)
           for (const entry of this.sentMessages) {
-            const fixed = convertMarkdownTables(entry.content);
+            const { content: fixed } = convertMarkdownTables(entry.content, true);
             if (fixed !== entry.content) {
               try {
                 debug('StreamHandler', '🔧 corrigindo tabelas em mensagem anterior');
@@ -325,7 +362,7 @@ export class StreamHandler {
           }
           // Corrige tabelas que foram fragmentadas durante o streaming
           if (this.currentMessage && this.currentRawContent) {
-          const fixed = convertMarkdownTables(this.currentRawContent);
+          const { content: fixed } = convertMarkdownTables(this.currentRawContent, true);
           if (fixed !== this.currentRawContent) {
             try {
               debug('StreamHandler', '🔧 corrigindo tabelas no conteúdo final');
@@ -570,34 +607,51 @@ function formatTableAsCode(rows) {
 /**
  * Detecta tabelas Markdown no texto e as converte para blocos de código monospace alinhados.
  * Discord não renderiza tabelas GFM — este passo garante legibilidade.
+ *
+ * Retorna `{ content, pending }` onde `pending` contém linhas de tabela ainda incompletas
+ * (caso a tabela esteja no fim do chunk e `isLastChunk` seja false), para serem
+ * pré-pendidas ao próximo flush.
+ *
  * @param {string} text
- * @returns {string}
+ * @param {boolean} [isLastChunk=false] - Se true, força conversão mesmo de tabelas no fim do chunk
+ * @returns {{ content: string, pending: string }}
  */
-function convertMarkdownTables(text) {
+function convertMarkdownTables(text, isLastChunk = false) {
   const lines = text.split('\n');
   const result = [];
   let i = 0;
 
   while (i < lines.length) {
-    // Detecta tabela: linha de cabeçalho + linha separadora logo abaixo
+    // Detecta início de tabela: linha de dados + linha separadora
     if (isTableRow(lines[i]) && i + 1 < lines.length && isSeparatorRow(lines[i + 1])) {
       const headerLine = lines[i];
       const sepLine = lines[i + 1];
       let j = i + 2;
 
-      // Coleta linhas de dados da tabela
+      // Coleta linhas de dados
       while (j < lines.length && isTableRow(lines[j])) {
         j++;
       }
 
       const dataRows = lines.slice(i + 2, j);
 
+      // Verifica se há conteúdo não-tabela após as linhas coletadas
+      const hasContentAfter = lines.slice(j).some((l) => l.trim() !== '');
+      const tableIsComplete = hasContentAfter || isLastChunk;
+
+      if (!tableIsComplete) {
+        // Tabela ainda pode estar crescendo — retorna tudo a partir daqui como pendente
+        const pendingLines = lines.slice(i).join('\n');
+        return { content: result.join('\n'), pending: pendingLines };
+      }
+
       if (dataRows.length === 0) {
-        // Tabela sem dados ainda (stream incompleto) — mantém como texto raw
+        // Tabela sem dados (header apenas) — mantém como texto raw
         result.push(headerLine);
         result.push(sepLine);
         i += 2;
       } else {
+        // Tabela completa — converte para bloco de código
         result.push(formatTableAsCode([headerLine, ...dataRows]));
         i = j;
       }
@@ -607,7 +661,7 @@ function convertMarkdownTables(text) {
     }
   }
 
-  return result.join('\n');
+  return { content: result.join('\n'), pending: '' };
 }
 
 /**
