@@ -55,6 +55,9 @@ export const MAX_GLOBAL_SESSIONS = parseInt(process.env.MAX_GLOBAL_SESSIONS || '
 /** Porta do endpoint de health check */
 export const HEALTH_PORT = parseInt(process.env.HEALTH_PORT || '9090', 10);
 
+/** Caminho do arquivo de persistência de sessões (opcional) */
+export const PERSISTENCE_PATH = process.env.PERSISTENCE_PATH || null;
+
 // ─── Timeouts internos ────────────────────────────────────────────────────────
 
 /** Delay em ms antes de reiniciar servidor OpenCode após crash (padrão: 2000) */

@@ -9,6 +9,7 @@ import { basename } from 'path';
 import { stripAnsi, debug } from './utils.js';
 import { ServerManager } from './server-manager.js';
 import { SESSION_TIMEOUT_MS, MAX_BUFFER } from './config.js';
+import { saveSession, removeSession } from './persistence.js';
 
 /** Intervalo de verificação de timeout (1 min) */
 const TIMEOUT_CHECK_INTERVAL = 60_000;
@@ -441,6 +442,17 @@ class SessionManager {
 
     await session.start(this.serverManager);
 
+    // Persistir metadados da sessão em disco para sobreviver a reinicializações
+    saveSession({
+      sessionId: session.sessionId,
+      threadId: session.threadId,
+      projectPath: session.projectPath,
+      userId: session.userId,
+      agent: session.agent,
+      status: 'active',
+      createdAt: new Date().toISOString(),
+    }).catch(err => console.error('[SessionManager] Erro ao persistir sessão:', err));
+
     return session;
   }
 
@@ -546,6 +558,9 @@ class SessionManager {
     // São no-ops seguros caso o listener já tenha executado primeiro.
     this._sessions.delete(sessionId);
     this._threadIndex.delete(session.threadId);
+
+    // Remover sessão do arquivo de persistência em disco
+    removeSession(sessionId).catch(err => console.error('[SessionManager] Erro ao remover sessão persistida:', err));
 
     console.log('[SessionManager] 🗑️ Sessão destruída: %s', sessionId);
   }

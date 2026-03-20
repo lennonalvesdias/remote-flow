@@ -10,12 +10,14 @@ import {
   Routes,
   MessageFlags,
 } from 'discord.js';
+import path from 'node:path';
 import { SessionManager } from './session-manager.js';
 import { ServerManager } from './server-manager.js';
 import { handleCommand, handleInteraction, handleAutocomplete, commandDefinitions } from './commands.js';
 import { formatAge, debug } from './utils.js';
 import { ALLOWED_USERS, ALLOW_SHARED_SESSIONS, CHANNEL_FETCH_TIMEOUT_MS, SHUTDOWN_TIMEOUT_MS } from './config.js';
 import { startHealthServer } from './health.js';
+import { loadSessions, clearSessions } from './persistence.js';
 
 // ─── Validação de configuração ────────────────────────────────────────────────
 
@@ -64,6 +66,31 @@ async function registerCommands() {
 // ─── Eventos do Discord ───────────────────────────────────────────────────────
 
 client.once('clientReady', async (c) => {
+  // Notificar threads de sessões que foram interrompidas pelo restart
+  try {
+    const persistedSessions = await loadSessions();
+    const activeSessions = persistedSessions.filter(s => s.status === 'active');
+    if (activeSessions.length > 0) {
+      console.log(`[Index] ⚠️ ${activeSessions.length} sessão(ões) interrompida(s) pelo restart`);
+      for (const s of activeSessions) {
+        try {
+          const channel = await client.channels.fetch(s.threadId).catch(() => null);
+          if (channel && channel.isThread()) {
+            await channel.send(
+              `⚠️ **O bot foi reiniciado** e a sessão \`${s.sessionId}\` (projeto \`${path.basename(s.projectPath)}\`) foi encerrada.\n` +
+              `Use \`/plan\` ou \`/build\` para iniciar uma nova sessão.`
+            );
+          }
+        } catch (err) {
+          console.error(`[Index] Erro ao notificar thread ${s.threadId}:`, err);
+        }
+      }
+      await clearSessions();
+    }
+  } catch (err) {
+    console.error('[Index] Erro ao carregar sessões persistidas:', err);
+  }
+
   console.log(`\n🤖 Bot online: ${c.user.tag}`);
   console.log(`📁 Projetos: ${process.env.PROJECTS_BASE_PATH}`);
   console.log(`🔧 OpenCode: ${process.env.OPENCODE_BIN || 'opencode'}\n`);
