@@ -50,7 +50,13 @@ async function readFile() {
     return data;
   } catch (err) {
     if (err.code === 'ENOENT') return { version: SCHEMA_VERSION, sessions: [] };
-    console.error('[Persistence] Erro ao ler arquivo de persistência:', err);
+    console.warn('[Persistence] Arquivo de persistência corrompido, recriando:', err.message);
+    // Tenta deletar o arquivo corrompido para evitar o erro nas próximas reinicializações
+    try {
+      await fs.unlink(PERSISTENCE_FILE);
+    } catch {
+      // ignora se já não existe
+    }
     return { version: SCHEMA_VERSION, sessions: [] };
   }
 }

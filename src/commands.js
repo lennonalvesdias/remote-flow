@@ -468,13 +468,12 @@ async function handleStop(interaction, sessionManager) {
  * @param {import('discord.js').ChatInputCommandInteraction} interaction
  */
 async function handleListProjects(interaction) {
+  await interaction.deferReply({ ephemeral: true });
+
   const projects = await getProjects();
 
   if (projects.length === 0) {
-    return interaction.reply({
-      content: `📭 Nenhum projeto encontrado em \`${PROJECTS_BASE}\`.`,
-      flags: MessageFlags.Ephemeral,
-    });
+    return interaction.editReply(`📭 Nenhum projeto encontrado em \`${PROJECTS_BASE}\`.`);
   }
 
   const embed = new EmbedBuilder()
@@ -483,7 +482,7 @@ async function handleListProjects(interaction) {
     .setColor(0x57f287)
     .setFooter({ text: `Base: ${PROJECTS_BASE}` });
 
-  await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+  await interaction.editReply({ embeds: [embed] });
 }
 
 /**
