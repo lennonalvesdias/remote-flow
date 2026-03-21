@@ -143,7 +143,7 @@ export const commandDefinitions = [
     ),
 
   new SlashCommandBuilder()
-    .setName('sessions')
+    .setName('sessoes')
     .setDescription('Lista todas as sessões OpenCode ativas'),
 
   new SlashCommandBuilder()
@@ -151,19 +151,19 @@ export const commandDefinitions = [
     .setDescription('Mostra o status da sessão na thread atual'),
 
   new SlashCommandBuilder()
-    .setName('stop')
+    .setName('parar')
     .setDescription('Encerra a sessão OpenCode na thread atual'),
 
   new SlashCommandBuilder()
-    .setName('projects')
+    .setName('projetos')
     .setDescription('Lista os projetos disponíveis em PROJECTS_BASE_PATH'),
 
   new SlashCommandBuilder()
-    .setName('history')
+    .setName('historico')
     .setDescription('Baixa o output completo da sessão como arquivo de texto'),
 
   new SlashCommandBuilder()
-    .setName('command')
+    .setName('comando')
     .setDescription('Executa um comando opencode personalizado na sessão atual')
     .addStringOption((o) =>
       o.setName('nome')
@@ -217,17 +217,17 @@ export async function handleCommand(interaction, sessionManager) {
 
   if (commandName === 'plan' || commandName === 'build') {
     await handleStartSession(interaction, sessionManager, commandName);
-  } else if (commandName === 'sessions') {
+  } else if (commandName === 'sessoes') {
     await handleListSessions(interaction, sessionManager);
   } else if (commandName === 'status') {
     await handleStatus(interaction, sessionManager);
-  } else if (commandName === 'stop') {
+  } else if (commandName === 'parar') {
     await handleStop(interaction, sessionManager);
-  } else if (commandName === 'projects') {
+  } else if (commandName === 'projetos') {
     await handleListProjects(interaction);
-  } else if (commandName === 'history') {
+  } else if (commandName === 'historico') {
     await handleHistory(interaction, sessionManager);
-  } else if (commandName === 'command') {
+  } else if (commandName === 'comando') {
     await handleRunCommand(interaction, sessionManager);
   } else if (commandName === 'diff') {
     await handleDiffCommand(interaction, sessionManager);
@@ -246,7 +246,7 @@ export async function handleAutocomplete(interaction) {
   const { commandName } = interaction;
 
   // Autocomplete de nome de comando para /comando
-  if (commandName === 'command') {
+  if (commandName === 'comando') {
     const focusedOption = interaction.options.getFocused(true);
     if (focusedOption.name === 'nome') {
       await handleCommandoAutocomplete(interaction, focusedOption.value);

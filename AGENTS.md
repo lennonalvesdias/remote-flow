@@ -161,6 +161,32 @@ export function createSession(projectPath, threadId) { … }
 
 ---
 
+## Validation Requirements
+
+**Toda modificação de código deve passar pela validação antes de ser submetida.**
+
+### Obrigatório antes de cada commit
+
+1. **Executar os testes:**
+   ```bash
+   npm run test:ci
+   ```
+   Todos os testes devem passar. Nenhuma falha é aceitável.
+
+2. **Verificar que o servidor inicia sem erros:**
+   ```bash
+   node --check src/index.js
+   ```
+   O arquivo de entrada deve passar na verificação de sintaxe sem erros.
+
+### Regras
+
+- **Nunca faça commit com testes falhando.** Se um teste quebrar com sua mudança, corrija o código ou o teste antes de commitar.
+- **Novos comportamentos exigem novos testes.** Todo novo comando, evento ou função exportada deve ter cobertura de teste correspondente em `tests/`.
+- **Testes devem refletir a interface real.** Nomes de comandos, eventos e métodos nos testes devem estar em sincronia com o código-fonte.
+
+---
+
 ## Commit Style
 
 Use [Conventional Commits](https://www.conventionalcommits.org/):
