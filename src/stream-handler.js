@@ -53,11 +53,21 @@ export class StreamHandler {
 
     // Quando a sessão muda de status — usa fila para evitar burst de rate limit
     this.session.on('status', (status) => {
+      // Captura o tamanho da fila sincronamente antes de entrar na fila de status
+      const queueSizeAtEvent = this.session.getQueueSize();
       this._statusQueue.push(async () => {
         await this.flush();
         // Reseta hasOutput ao retomar execução para que "Processando..." apareça novamente
         if (status === 'running') {
           this.hasOutput = false;
+        }
+        // Informa o usuário quando há mensagens enfileiradas prestes a serem enviadas
+        const isTaskCompleted = status === 'finished' && this.session.status === 'idle';
+        const isWaitingForAnswer = status === 'waiting_input';
+        if ((isTaskCompleted || isWaitingForAnswer) && queueSizeAtEvent > 0) {
+          await this.thread.send(`📨 Processando ${queueSizeAtEvent} mensagem(s) enfileirada(s)...`).catch((err) =>
+            console.error('[StreamHandler] Erro ao enviar notificação de fila:', err.message)
+          );
         }
         await this.sendStatusMessage(status);
         // Notificação DM quando sessão termina processamento (agente idle/finalizado)
@@ -70,6 +80,13 @@ export class StreamHandler {
 
     // Quando o processo fecha — flush final, para o handler e arquiva a thread
     this.session.on('close', async () => {
+      // Avisa sobre mensagens na fila que não serão processadas
+      const abandonedCount = this.session.getQueueSize();
+      if (abandonedCount > 0) {
+        await this.thread.send(`⚠️ A sessão encerrou com ${abandonedCount} mensagem(s) não processada(s) na fila.`).catch((err) =>
+          console.error('[StreamHandler] Erro ao enviar aviso de fila não processada:', err.message)
+        );
+      }
       await this.flush();
       this.stop();
       // Arquiva a thread após THREAD_ARCHIVE_DELAY_MS para dar tempo de ler a mensagem final
@@ -99,6 +116,13 @@ export class StreamHandler {
     this.session.on('error', (err) => {
       console.error('[StreamHandler] ❌ Erro na sessão:', err.message);
       // status 'error' já tratado via listener 'status'
+    });
+
+    // Mensagens enfileiradas descartadas porque a sessão encerrou inesperadamente
+    this.session.on('queue-abandoned', (count) => {
+      this.thread.send(`⚠️ ${count} mensagem(s) na fila foram descartadas porque a sessão encerrou inesperadamente.`).catch((err) =>
+        console.error('[StreamHandler] Erro ao enviar aviso de fila descartada:', err.message)
+      );
     });
 
     // Gerencia pedidos de permissão interativos com botões Aprovar/Recusar

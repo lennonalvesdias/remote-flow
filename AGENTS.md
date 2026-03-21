@@ -136,6 +136,49 @@ export function createSession(projectPath, threadId) { … }
 
 ---
 
+## Slash Command Conventions
+
+### Command Names — English Only
+
+All slash command names, subcommand names, and option names **must be in English**.
+This rule is absolute — no exceptions.
+
+✅ Correct:
+```
+/sessions
+/stop
+/projects
+/history
+/command
+/queue view
+/queue clear
+```
+
+❌ Wrong:
+```
+/sessoes
+/parar
+/projetos
+/historico
+/comando
+/fila ver
+/fila limpar
+```
+
+**Why:** Discord slash commands are user-facing identifiers. English names ensure
+consistency, discoverability, and alignment with Discord's global ecosystem.
+
+**Where this is enforced:**
+- `commandDefinitions` in `src/commands.js` — all `.setName()` calls use English
+- Tests in `tests/commands.test.js` — test command names match source exactly
+
+**When adding a new command:**
+- Use English for command name, subcommand names, and all option names
+- Descriptions (`.setDescription()`) may be in Portuguese (PT-BR) for clarity
+- User-facing reply messages remain in Portuguese (PT-BR)
+
+---
+
 ## Error Handling
 
 1. **Validate env vars at startup** — call `process.exit(1)` early if required vars are missing.

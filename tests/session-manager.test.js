@@ -864,4 +864,86 @@ describe('SessionManager', () => {
     const sess = await sm.create({ projectPath: '/projetos/model-test', threadId: 'thread-mdl', userId: 'user-mdl', agent: 'coder', model: 'openai/gpt-4o' })
     expect(sess.model).toBe('openai/gpt-4o')
   })
+
+  // ─── queueMessage — retorno { queued, position } ────────────────────────────
+
+  it('queueMessage() retorna { queued: false, position: 0 } quando status é idle', async () => {
+    const sess = await sm.create({ projectPath: '/projetos/qret-idle', threadId: 'thread-qri', userId: 'user-qri', agent: 'coder' })
+    // status é 'idle' após start
+    const result = await sess.queueMessage('olá agente')
+    expect(result).toEqual({ queued: false, position: 0 })
+  })
+
+  it('queueMessage() retorna { queued: true, position: 1 } quando status é running (primeira mensagem)', async () => {
+    const sess = await sm.create({ projectPath: '/projetos/qret-running', threadId: 'thread-qrr', userId: 'user-qrr', agent: 'coder' })
+    sess.status = 'running'
+    const result = await sess.queueMessage('primeira mensagem')
+    expect(result).toEqual({ queued: true, position: 1 })
+  })
+
+  it('queueMessage() retorna { queued: true, position: 2 } para segunda mensagem enfileirada', async () => {
+    const sess = await sm.create({ projectPath: '/projetos/qret-p2', threadId: 'thread-qrp2', userId: 'user-qrp2', agent: 'coder' })
+    sess.status = 'running'
+    await sess.queueMessage('primeira')
+    const result = await sess.queueMessage('segunda')
+    expect(result).toEqual({ queued: true, position: 2 })
+  })
+
+  // ─── queue-change event ──────────────────────────────────────────────────────
+
+  it('queueMessage() emite queue-change ao adicionar mensagem à fila quando running', async () => {
+    const sess = await sm.create({ projectPath: '/projetos/qchange', threadId: 'thread-qch', userId: 'user-qch', agent: 'coder' })
+    sess.status = 'running'
+    const changes = []
+    sess.on('queue-change', (size) => changes.push(size))
+    await sess.queueMessage('mensagem')
+    expect(changes.length).toBeGreaterThan(0)
+    expect(changes[0]).toBe(1)
+  })
+
+  // ─── getQueueSize ────────────────────────────────────────────────────────────
+
+  it('getQueueSize() retorna 0 inicialmente e incrementa ao enfileirar mensagens', async () => {
+    const sess = await sm.create({ projectPath: '/projetos/qsize', threadId: 'thread-qs', userId: 'user-qs', agent: 'coder' })
+    expect(sess.getQueueSize()).toBe(0)
+    sess.status = 'running'
+    await sess.queueMessage('msg1')
+    expect(sess.getQueueSize()).toBe(1)
+    await sess.queueMessage('msg2')
+    expect(sess.getQueueSize()).toBe(2)
+  })
+
+  // ─── _drainMessageQueue — estados terminais ──────────────────────────────────
+
+  it('_drainMessageQueue() não processa mensagens quando status já é finished', async () => {
+    const sess = await sm.create({ projectPath: '/projetos/drain-fin', threadId: 'thread-df', userId: 'user-df', agent: 'coder' })
+    sess.status = 'finished'
+    sess._messageQueue = ['msg1', 'msg2']
+    client.sendMessage.mockClear()
+    await sess._drainMessageQueue()
+    expect(client.sendMessage).not.toHaveBeenCalled()
+  })
+
+  it('_drainMessageQueue() emite queue-abandoned quando status é terminal e há mensagens', async () => {
+    const sess = await sm.create({ projectPath: '/projetos/drain-abandon', threadId: 'thread-da', userId: 'user-da', agent: 'coder' })
+    sess.status = 'finished'
+    sess._messageQueue = ['msg1', 'msg2', 'msg3']
+    const abandoned = []
+    sess.on('queue-abandoned', (count) => abandoned.push(count))
+    await sess._drainMessageQueue()
+    expect(abandoned).toHaveLength(1)
+    expect(abandoned[0]).toBe(3)
+    expect(sess._messageQueue).toHaveLength(0)
+  })
+
+  // ─── _handleIdleTransition — waiting_input → finished drena fila ─────────────
+
+  it('_handleIdleTransition() com status waiting_input chama _drainMessageQueue()', async () => {
+    const sess = await sm.create({ projectPath: '/projetos/idle-drain', threadId: 'thread-id2', userId: 'user-id2', agent: 'coder' })
+    sess.status = 'waiting_input'
+    sess._messageQueue = ['mensagem pendente']
+    const drainSpy = vi.spyOn(sess, '_drainMessageQueue').mockResolvedValue()
+    sess._handleIdleTransition()
+    expect(drainSpy).toHaveBeenCalled()
+  })
 })

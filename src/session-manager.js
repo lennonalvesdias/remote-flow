@@ -156,38 +156,79 @@ class OpenCodeSession extends EventEmitter {
 
   /**
    * Enfileira uma mensagem para envio quando a sessão estiver pronta.
-   * Se a sessão estiver idle/waiting_input, envia imediatamente.
-   * Se estiver running, enfileira para enviar quando ficar idle.
+   * Se a sessão estiver idle/waiting_input, envia imediatamente e retorna { queued: false, position: 0 }.
+   * Se estiver running, enfileira para enviar quando ficar idle e retorna { queued: true, position }.
    * @param {string} text - Texto a enviar
+   * @returns {Promise<{ queued: boolean, position: number }>}
    */
   async queueMessage(text) {
     if (this.status === 'finished' || this.status === 'error') {
       throw new Error('Sessão encerrada');
     }
+
+    if (this.status === 'running') {
+      // Sessão em execução — enfileira para enviar quando ficar idle
+      const position = this._messageQueue.length + 1;
+      this._messageQueue.push(text);
+      this.emit('queue-change', this._messageQueue.length);
+      return { queued: true, position };
+    }
+
+    // Sessão idle ou waiting_input — envia imediatamente via drain
     this._messageQueue.push(text);
+    this.emit('queue-change', this._messageQueue.length);
     await this._drainMessageQueue();
+    return { queued: false, position: 0 };
+  }
+
+  /**
+   * Retorna o número de mensagens atualmente na fila de espera.
+   * @returns {number}
+   */
+  getQueueSize() {
+    return this._messageQueue.length;
   }
 
   /**
    * Drena a fila de mensagens pendentes, enviando uma por vez.
    * Retorna imediatamente se a fila já está sendo processada ou se a sessão
    * está em execução (aguardando o agente terminar).
+   * Em estados terminais (finished/error), abandona as mensagens restantes e emite 'queue-abandoned'.
    * @private
    */
   async _drainMessageQueue() {
     if (this._processingQueue) return;
     if (this.status === 'running') return;
+
+    // Estado terminal — abandona mensagens enfileiradas imediatamente
+    if (this.status === 'finished' || this.status === 'error') {
+      if (this._messageQueue.length > 0) {
+        const count = this._messageQueue.length;
+        this._messageQueue = [];
+        this.emit('queue-abandoned', count);
+      }
+      return;
+    }
+
     if (this._messageQueue.length === 0) return;
 
     this._processingQueue = true;
     try {
-      while (this._messageQueue.length > 0 && this.status !== 'running') {
+      const isTerminal = () => this.status === 'finished' || this.status === 'error';
+      while (this._messageQueue.length > 0 && this.status !== 'running' && !isTerminal()) {
         const text = this._messageQueue.shift();
+        this.emit('queue-change', this._messageQueue.length);
         await this.sendMessage(text);
         // Pausa entre mensagens consecutivas para evitar spam
-        if (this._messageQueue.length > 0 && this.status !== 'running') {
+        if (this._messageQueue.length > 0 && this.status !== 'running' && !isTerminal()) {
           await new Promise((resolve) => setTimeout(resolve, 300));
         }
+      }
+      // Saiu do loop com mensagens restantes em estado terminal — abandona
+      if (this._messageQueue.length > 0 && isTerminal()) {
+        const count = this._messageQueue.length;
+        this._messageQueue = [];
+        this.emit('queue-abandoned', count);
       }
     } finally {
       this._processingQueue = false;
@@ -397,6 +438,10 @@ class OpenCodeSession extends EventEmitter {
       // Servidor sinalizou idle novamente — sessão realmente concluída
       this.status = 'idle';
       this.emit('status', 'finished');
+      // Sessão saiu de `waiting_input` — processa mensagens enfileiradas
+      this._drainMessageQueue().catch((err) => {
+        console.error('[OpenCodeSession] ⚠️ Erro ao drenar fila de mensagens:', err.message);
+      });
     }
   }
 

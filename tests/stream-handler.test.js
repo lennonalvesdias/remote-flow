@@ -60,6 +60,7 @@ function createMockSession() {
   emitter.projectPath = '/projetos/meu-projeto';
   emitter.agent = 'build';
   emitter.outputBuffer = '';
+  emitter.getQueueSize = vi.fn().mockReturnValue(0);
   return emitter;
 }
 
