@@ -1,8 +1,8 @@
-# OpenCode Discord Bridge — Codebase Analysis
+# RemoteFlow — Codebase Analysis
 
 ## Overview
 
-This document provides a comprehensive analysis of how the OpenCode Discord Bridge processes output from the opencode CLI and sends it to Discord, with special focus on text formatting, message chunking, and streaming.
+This document provides a comprehensive analysis of how the RemoteFlow processes output from the opencode CLI and sends it to Discord, with special focus on text formatting, message chunking, and streaming.
 
 **Project Structure:**
 - **Language:** Plain JavaScript (ES Modules)

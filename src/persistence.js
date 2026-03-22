@@ -1,6 +1,6 @@
 /**
  * @fileoverview Módulo de persistência de sessões em disco.
- * Salva metadados de sessões ativas em ~/.opencode-discord/data.json
+ * Salva metadados de sessões ativas em ~/.remote-flow/data.json
  * para detectar sessões interrompidas após reinicializações do bot.
  */
 
@@ -13,10 +13,10 @@ import { PERSISTENCE_PATH } from './config.js';
 
 const PERSISTENCE_DIR = PERSISTENCE_PATH
   ? path.dirname(PERSISTENCE_PATH)
-  : path.join(os.homedir(), '.opencode-discord');
+  : path.join(os.homedir(), '.remote-flow');
 
 const PERSISTENCE_FILE = PERSISTENCE_PATH
-  || path.join(os.homedir(), '.opencode-discord', 'data.json');
+  || path.join(os.homedir(), '.remote-flow', 'data.json');
 
 const SCHEMA_VERSION = 1;
 

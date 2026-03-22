@@ -1,8 +1,8 @@
 {
-  "name": "opencode-discord-bridge",
+  "name": "remote-flow",
   "version": "1.0.0",
   "license": "MIT",
-  "description": "Bridge between Discord and OpenCode CLI for remote development sessions",
+  "description": "RemoteFlow — a ponte entre o seu ambiente de desenvolvimento local e o Discord.",
   "main": "src/index.js",
   "type": "module",
   "scripts": {

@@ -65,9 +65,9 @@ export const HEALTH_PORT = parseInt(process.env.HEALTH_PORT || '9090', 10);
 /** Caminho do arquivo de persistência de sessões (opcional) */
 export const PERSISTENCE_PATH = process.env.PERSISTENCE_PATH || null;
 
-/** Caminho do arquivo de auditoria NDJSON (padrão: ~/.opencode-discord/audit.ndjson) */
+/** Caminho do arquivo de auditoria NDJSON (padrão: ~/.remote-flow/audit.ndjson) */
 export const AUDIT_LOG_PATH = process.env.AUDIT_LOG_PATH ||
-  path.join(os.homedir(), '.opencode-discord', 'audit.ndjson');
+  path.join(os.homedir(), '.remote-flow', 'audit.ndjson');
 
 // ─── Timeouts internos ────────────────────────────────────────────────────────
 

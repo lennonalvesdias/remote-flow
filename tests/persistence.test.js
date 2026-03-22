@@ -21,7 +21,7 @@ vi.mock('node:fs/promises', () => ({
 }));
 
 vi.mock('../src/config.js', () => ({
-  PERSISTENCE_PATH: '/tmp/test-opencode-discord/data.json',
+  PERSISTENCE_PATH: '/tmp/test-remote-flow/data.json',
 }));
 
 // ─── Testes ───────────────────────────────────────────────────────────────────
@@ -162,7 +162,7 @@ describe('persistence', () => {
 
       await saveSession({ sessionId: 'sess-dir-test', status: 'idle' });
 
-      expect(mockFs.mkdir).toHaveBeenCalledWith('/tmp/test-opencode-discord', { recursive: true });
+      expect(mockFs.mkdir).toHaveBeenCalledWith('/tmp/test-remote-flow', { recursive: true });
     });
 
     it('não chama mkdir novamente após o flag _dirEnsured ser definido', async () => {

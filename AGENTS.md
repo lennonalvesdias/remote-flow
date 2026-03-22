@@ -1,4 +1,4 @@
-# AGENTS.md — OpenCode Discord Bridge
+# AGENTS.md — RemoteFlow
 
 Coding guidelines for AI agents and contributors working in this repository.
 

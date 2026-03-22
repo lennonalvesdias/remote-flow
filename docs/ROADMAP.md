@@ -1,18 +1,18 @@
-# 🗺️ ROADMAP — opencode-discord
+# 🗺️ ROADMAP — RemoteFlow
 
 > **Versão atual:** v1.3.0 (release)
 > **Última atualização:** 2026-03-20
 > **Status:** Fase 1 concluída (100%) — iniciando Fase 2
 
-Mapeamento completo de evoluções planejadas para o projeto `opencode-discord`, com análise de impacto, esforço e risco para cada funcionalidade.
+Mapeamento completo de evoluções planejadas para o projeto `remote-flow`, com análise de impacto, esforço e risco para cada funcionalidade.
 
 ---
 
 ## 📍 Visão do Produto
 
-O `opencode-discord` é uma ponte que torna o desenvolvimento assistido por IA acessível de qualquer lugar do mundo através de uma interface já familiar para milhões de desenvolvedores: o Discord. Em vez de exigir acesso direto ao terminal da máquina de desenvolvimento, o bot expõe o poder do `opencode` — um agente de código de última geração — como uma conversa de texto no bolso do desenvolvedor. Isso significa que um desenvolvedor pode iniciar uma sessão de planejamento ou implementação a partir do celular durante uma reunião, no trem, ou de qualquer outro dispositivo, sem jamais abrir um terminal.
+O `RemoteFlow` é uma ponte que torna o desenvolvimento assistido por IA acessível de qualquer lugar do mundo através de uma interface já familiar para milhões de desenvolvedores: o Discord. Em vez de exigir acesso direto ao terminal da máquina de desenvolvimento, o bot expõe o poder do `opencode` — um agente de código de última geração — como uma conversa de texto no bolso do desenvolvedor. Isso significa que um desenvolvedor pode iniciar uma sessão de planejamento ou implementação a partir do celular durante uma reunião, no trem, ou de qualquer outro dispositivo, sem jamais abrir um terminal.
 
-A visão de longo prazo é transformar o `opencode-discord` em uma plataforma de agentes de desenvolvimento *mobile-first*: onde qualquer desenvolvedor consiga iniciar, monitorar e guiar sessões de codificação remota em tempo real, com latência mínima, máxima resiliência a falhas de rede, e interface rica usando os componentes nativos do Discord (botões, selects, threads, embeds, DMs). O projeto deve continuar sendo a ponte mais simples possível entre o humano e o agente de código, sem adicionar camadas desnecessárias de complexidade.
+A visão de longo prazo é transformar o `RemoteFlow` em uma plataforma de agentes de desenvolvimento *mobile-first*: onde qualquer desenvolvedor consiga iniciar, monitorar e guiar sessões de codificação remota em tempo real, com latência mínima, máxima resiliência a falhas de rede, e interface rica usando os componentes nativos do Discord (botões, selects, threads, embeds, DMs). O projeto deve continuar sendo a ponte mais simples possível entre o humano e o agente de código, sem adicionar camadas desnecessárias de complexidade.
 
 O produto respeita intencionalmente a filosofia minimalista herdada do projeto-pai: sem etapa de compilação, sem containers obrigatórios, sem dependências externas além do Node.js e do Discord. A meta de instalação é: qualquer desenvolvedor Windows deve conseguir configurar, iniciar e usar o bot em menos de 10 minutos, com um único arquivo `.env` e um script PowerShell para o serviço.
 
@@ -48,7 +48,7 @@ O produto respeita intencionalmente a filosofia minimalista herdada do projeto-p
 - ✅ Sanitização de ambiente antes de passar ao processo filho (sem vazar `DISCORD_TOKEN`)
 - ✅ Cache de autocomplete de projetos com TTL de 60 s (+ proteção contra cache stampede)
 - ✅ Health check retorna HTTP 503 quando >50% dos servidores em erro (com payload `servers[]`)
-- ✅ **Persistência JSON** — sessões salvas em `~/.opencode-discord/data.json` com serialização serial
+- ✅ **Persistência JSON** — sessões salvas em `~/.remote-flow/data.json` com serialização serial
 - ✅ Cobertura de testes 85,9% (349 testes com Vitest — meta v1.3 de 30% superada; meta Fase 2: 90%+)
 - ✅ Bugs B-09, B-10 e B-11 corrigidos
 - ✅ Refatoração S-12 concluída (`_handleIdleTransition()` extraído)
@@ -146,7 +146,7 @@ O produto respeita intencionalmente a filosofia minimalista herdada do projeto-p
 | **Comando `/diff`** | Slash command que exibe diff staged/unstaged do projeto; usa lógica já existente de `_sendDiffPreview()` | Médio | Baixo | Baixo | ✅ Concluído (2026-03-20) |
 | **Refatorar S-12** | Extrair `_handleIdleTransition()` em `session-manager.js` | Baixo | Baixo | Baixo | ✅ Concluído (2026-03-19) |
 | **Limite `_doAllocatePort()`** | Adicionar teto máximo (ex: porta base + 200) e erro descritivo | Baixo | Baixo | Baixo | ✅ Concluído (2026-03-19) |
-| **Persistência JSON** | Salvar `threadId↔sessionId↔status` em `~/.opencode-discord/data.json`; mostrar na thread ao reiniciar | Alto | Médio | Médio | ✅ Concluído (2026-03-20) |
+| **Persistência JSON** | Salvar `threadId↔sessionId↔status` em `~/.remote-flow/data.json`; mostrar na thread ao reiniciar | Alto | Médio | Médio | ✅ Concluído (2026-03-20) |
 
 ---
 
@@ -161,7 +161,7 @@ O produto respeita intencionalmente a filosofia minimalista herdada do projeto-p
 | **Modo passthrough** | `/modo passthrough` ativa forwarding sem slash command; indicador visual no embed; `/modo normal` reverte | Alto | Baixo | Baixo | 🔄 A iniciar |
 | **Seleção de modelo AI** | `/modelo set <nome>` persiste em `data.json`; `/modelo ver` exibe; autocomplete com modelos | Alto | Médio | Médio | 🔄 A iniciar |
 | **Endpoint `/metrics`** | Prometheus: `sessions_active`, `sessions_total`, `messages_sent_total`, `errors_total`, `flush_latency_ms` | Médio | Médio | Baixo | 🔄 A iniciar |
-| **Audit logging** | SQLite leve (`~/.opencode-discord/audit.db`): user_id, session_id, projeto, prompt, timestamp; `/auditoria` | Médio | Médio | Baixo | 🔄 A iniciar |
+| **Audit logging** | SQLite leve (`~/.remote-flow/audit.db`): user_id, session_id, projeto, prompt, timestamp; `/auditoria` | Médio | Médio | Baixo | 🔄 A iniciar |
 | **Rate limiting/projeto** | `MAX_SESSIONS_PER_PROJECT` env var; rejeitar se limite atingido | Médio | Baixo | Baixo | 🔄 A iniciar |
 | **Cobertura 90%+** | Expandir testes para edge cases em `opencode-client.js`, `commands.js`, `health.js` | Alto | Médio | Baixo | 🔄 A iniciar |
 
@@ -191,7 +191,7 @@ O produto respeita intencionalmente a filosofia minimalista herdada do projeto-p
 | Feature | Descrição | Impacto | Esforço | Risco |
 |---|---|---|---|---|
 | **Dashboard web** | Página HTML servida na porta `DASHBOARD_PORT`; exibe sessões ativas, estado dos servidores, histórico de erros, métricas em tempo real; sem dependências de framework | Médio | Alto | Baixo |
-| **Publicação npm** | Publicar `opencode-discord` no npm; `npx opencode-discord setup` e `npx opencode-discord start`; versionamento semântico com changelog automático | Alto | Médio | Baixo |
+| **Publicação npm** | Publicar `remote-flow` no npm; `npx remote-flow setup` e `npx remote-flow start`; versionamento semântico com changelog automático | Alto | Médio | Baixo |
 | **Adapter Telegram** | Extrair camada de transporte (Discord-specific) para interface genérica `BotAdapter`; implementar `TelegramAdapter`; mesma lógica de sessões e agentes para ambos | Médio | Alto | Alto |
 | **Webhook CI/CD** | Endpoint HTTP `POST /webhook` recebe payload GitHub/GitLab (PR opened, merge, push) e inicia sessão opencode automaticamente | Médio | Médio | Médio |
 | **Integração VS Code Remote** | Extensão VS Code que expõe o mesmo bot como painel lateral para ambientes remotos | Médio | Alto | Alto |
@@ -200,9 +200,9 @@ O produto respeita intencionalmente a filosofia minimalista herdada do projeto-p
 
 ## 🔄 Comparativo com remote-opencode
 
-> Comparação de funcionalidades entre o `opencode-discord` e a abordagem de `remote-opencode` (acesso remoto via CLI/SSH/proxy HTTP direto).
+> Comparação de funcionalidades entre o `RemoteFlow` e a abordagem de `remote-opencode` (acesso remoto via CLI/SSH/proxy HTTP direto).
 
-| Funcionalidade | opencode-discord | remote-opencode | Fase Roadmap |
+| Funcionalidade | RemoteFlow | remote-opencode | Fase Roadmap |
 |---|---|---|---|
 | Acesso mobile | ✅ Discord app nativo | ⚠️ Requer terminal mobile | — |
 | Sem VPN / port forwarding | ✅ Usa API Discord como relay | ❌ Exige exposição de porta ou VPN | — |
@@ -265,5 +265,5 @@ Para pegar uma tarefa do roadmap e contribuir com o projeto, siga o fluxo:
 
 ---
 
-*Documento mantido pela equipe de desenvolvimento do opencode-discord.*
+*Documento mantido pela equipe de desenvolvimento do RemoteFlow.*
 *Para sugerir uma nova funcionalidade, abrir issue com label `roadmap` no repositório.*

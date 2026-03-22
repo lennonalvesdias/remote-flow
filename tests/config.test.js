@@ -318,10 +318,10 @@ describe('constantes de configuração — valores padrão e env', () => {
 
   // ─── AUDIT_LOG_PATH ─────────────────────────────────────────────────────────
 
-  it('AUDIT_LOG_PATH padrão contém .opencode-discord e audit.ndjson', async () => {
+  it('AUDIT_LOG_PATH padrão contém .remote-flow e audit.ndjson', async () => {
     vi.stubEnv('AUDIT_LOG_PATH', '');
     const { AUDIT_LOG_PATH } = await import('../src/config.js');
-    expect(AUDIT_LOG_PATH).toContain('.opencode-discord');
+    expect(AUDIT_LOG_PATH).toContain('.remote-flow');
     expect(AUDIT_LOG_PATH).toContain('audit.ndjson');
   });
 });

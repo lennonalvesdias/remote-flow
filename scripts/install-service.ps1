@@ -1,9 +1,9 @@
 # install-service.ps1
-# Instala o OpenCode Discord Bridge como serviço Windows usando NSSM
+# Instala o RemoteFlow como serviço Windows usando NSSM
 # Execute como Administrador: powershell -ExecutionPolicy Bypass -File scripts\install-service.ps1
 
 param(
-    [string]$ServiceName = "OpenCodeDiscord",
+    [string]$ServiceName = "RemoteFlow",
     [string]$ProjectDir  = (Split-Path $PSScriptRoot -Parent)
 )
 
@@ -11,7 +11,7 @@ $ErrorActionPreference = "Stop"
 
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  OpenCode Discord Bridge — Setup" -ForegroundColor Cyan
+Write-Host "  RemoteFlow — Setup" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -154,7 +154,7 @@ New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 & $nssmPath set $ServiceName AppRotateOnline 1
 & $nssmPath set $ServiceName AppRotateSeconds 86400
 & $nssmPath set $ServiceName AppRotateBytes 10485760
-& $nssmPath set $ServiceName Description "OpenCode Discord Bridge — Expoe o opencode CLI via bot Discord"
+& $nssmPath set $ServiceName Description "RemoteFlow — Expõe o OpenCode CLI via bot Discord"
 & $nssmPath set $ServiceName Start SERVICE_AUTO_START
 & $nssmPath set $ServiceName ObjectName LocalSystem
 

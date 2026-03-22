@@ -14,7 +14,7 @@ O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.
   - Diffs pequenos (< 1500 chars): inline com syntax highlighting
   - Diffs grandes: enviados como arquivo `.diff` anexo
   - Suporte a múltiplos diffs por evento (`handleDiffCommand` em `commands.js`)
-- **Persistência de sessões** — salva estado em `~/.opencode-discord/data.json`
+- **Persistência de sessões** — salva estado em `~/.remote-flow/data.json`
   - Serialização serial com serializer customizado para evitar race conditions
   - Recuperação de sessão ao reiniciar o bot (exibe último status na thread)
   - Formato: `{ threads: { threadId: { sessionId, port, status, projectPath } } }`

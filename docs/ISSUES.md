@@ -1,10 +1,10 @@
-# 📋 ISSUES.md — opencode-discord
+# 📋 ISSUES.md — RemoteFlow
 
 > **Documento vivo** — atualizar conforme issues forem resolvidas, novas forem identificadas ou evoluções forem implementadas.
 
 **Data de criação:** 2026-03-17
 **Última atualização:** 2026-03-20
-**Descrição:** Registro centralizado de bugs, code smells, cobertura de testes e ideias de evolução para o projeto `opencode-discord`. Serve como backlog técnico e guia de qualidade para o desenvolvimento contínuo.
+**Descrição:** Registro centralizado de bugs, code smells, cobertura de testes e ideias de evolução para o projeto `remote-flow`. Serve como backlog técnico e guia de qualidade para o desenvolvimento contínuo.
 
 ---
 
@@ -119,7 +119,7 @@
 | Comando `/diff` | `commands.js` | ✅ | `handleDiffCommand()` expõe preview de diffs (inline/arquivo) |
 | Refatorar S-12 | `session-manager.js` | ✅ | `_handleIdleTransition()` centralizado; duplicação eliminada |
 | Limite `_doAllocatePort()` (S-11) | `server-manager.js` | ✅ | Teto `PORT_SCAN_MAX_RANGE = 200`; erro descritivo |
-| Persistência JSON | `src/persistence.js` | ✅ | `~/.opencode-discord/data.json` com serialização serial |
+| Persistência JSON | `src/persistence.js` | ✅ | `~/.remote-flow/data.json` com serialização serial |
 
 ---
 
@@ -134,7 +134,7 @@
 | Modo passthrough | 🔴 Alta | `commands.js` | `/modo passthrough` ativa forwarding de mensagens sem slash command |
 | Seleção de modelo AI | 🟡 Média | `persistence.js` | `/modelo set <nome>` persiste em `data.json`; autocomplete com modelos |
 | Endpoint `/metrics` | 🟡 Média | `health.js` | Prometheus: `sessions_active`, `sessions_total`, `messages_sent_total`, `errors_total`, `flush_latency_ms` |
-| Audit logging | 🟡 Média | Novo: `src/audit.js` | SQLite leve em `~/.opencode-discord/audit.db`; `/auditoria` command para admins |
+| Audit logging | 🟡 Média | Novo: `src/audit.js` | SQLite leve em `~/.remote-flow/audit.db`; `/auditoria` command para admins |
 | Rate limiting por projeto | 🟡 Média | `config.js`, `commands.js` | `MAX_SESSIONS_PER_PROJECT` env var; rejeitar se limite atingido |
 | Cobertura 90%+ | 🟡 Média | Todos | Expandir testes para 90% statements; target: edge cases em `opencode-client.js`, `commands.js`, `health.js` |
 
@@ -188,5 +188,5 @@
 
 ---
 
-*Documento mantido pela equipe de desenvolvimento do opencode-discord.*
+*Documento mantido pela equipe de desenvolvimento do RemoteFlow.*
 *Para adicionar um novo issue, seguir o padrão das tabelas acima com ID sequencial (B-09, S-09, etc.).*

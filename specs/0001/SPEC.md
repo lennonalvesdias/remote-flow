@@ -1,4 +1,4 @@
-# SPEC-0001 — OpenCode Discord Bridge
+# SPEC-0001 — RemoteFlow
 
 > **Status:** Draft  
 > **Versão:** 1.0.0  
@@ -9,7 +9,7 @@
 
 ## 1. Visão Geral
 
-O **OpenCode Discord Bridge** é um sistema que expõe o ambiente de desenvolvimento local Windows — especificamente o `opencode` CLI com seus agentes `plan` e `build` — através de um bot Discord. O objetivo é replicar, via iPhone (app Discord), a mesma experiência interativa que o desenvolvedor tem hoje no terminal do Windows.
+O **RemoteFlow** é um sistema que expõe o ambiente de desenvolvimento local Windows — especificamente o `opencode` CLI com seus agentes `plan` e `build` — através de um bot Discord. O objetivo é replicar, via iPhone (app Discord), a mesma experiência interativa que o desenvolvedor tem hoje no terminal do Windows.
 
 O sistema é inteiramente **local**: o bot roda na mesma máquina Windows, conecta-se ao Discord via WebSocket (sem necessidade de portas abertas ou servidores externos), e gerencia múltiplas sessões OpenCode simultâneas, cada uma isolada em sua própria thread Discord.
 
@@ -188,7 +188,7 @@ Sessões encerradas são mantidas em memória por 10 minutos para consulta de hi
 ## 5. Estrutura de Arquivos
 
 ```
-opencode-discord/
+remote-flow/
 │
 ├── .env.example              # Template de configuração
 ├── .env                      # Configuração local (não comitar)
@@ -368,7 +368,7 @@ Depois:
 
 ```powershell
 # 1. Clone ou copie os arquivos para seu Windows
-cd C:\Users\SeuUsuario\tools\opencode-discord
+cd C:\Users\SeuUsuario\tools\remote-flow
 
 # 2. Instale dependências
 npm install
@@ -398,9 +398,9 @@ winget install nssm
 powershell -ExecutionPolicy Bypass -File scripts\install-service.ps1
 
 # Gerenciar o serviço
-nssm start OpenCodeDiscord
-nssm stop OpenCodeDiscord
-nssm status OpenCodeDiscord
+nssm start RemoteFlow
+nssm stop RemoteFlow
+nssm status RemoteFlow
 ```
 
 ---

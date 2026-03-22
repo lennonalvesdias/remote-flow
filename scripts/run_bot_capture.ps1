@@ -2,7 +2,7 @@ $env:DEBUG = 'true'
 $pinfo = New-Object System.Diagnostics.ProcessStartInfo
 $pinfo.FileName = 'node'
 $pinfo.Arguments = '--watch src/index.js'
-$pinfo.WorkingDirectory = 'C:\Users\lenno\Projects\opencode-discord'
+$pinfo.WorkingDirectory = 'C:\Users\lenno\Projects\remote-flow'
 $pinfo.UseShellExecute = $false
 $pinfo.RedirectStandardOutput = $true
 $pinfo.RedirectStandardError = $true
@@ -12,8 +12,8 @@ $pinfo.EnvironmentVariables['DEBUG'] = 'true'
 $proc = New-Object System.Diagnostics.Process
 $proc.StartInfo = $pinfo
 
-$outFile = [System.IO.StreamWriter]::new('C:\Users\lenno\Projects\opencode-discord\bot_stdout.log', $false)
-$errFile = [System.IO.StreamWriter]::new('C:\Users\lenno\Projects\opencode-discord\bot_stderr.log', $false)
+$outFile = [System.IO.StreamWriter]::new('C:\Users\lenno\Projects\remote-flow\bot_stdout.log', $false)
+$errFile = [System.IO.StreamWriter]::new('C:\Users\lenno\Projects\remote-flow\bot_stderr.log', $false)
 
 $outFile.AutoFlush = $true
 $errFile.AutoFlush = $true
