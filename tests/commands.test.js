@@ -102,7 +102,22 @@ vi.mock('../src/github.js', () => ({
     listIssues: vi.fn().mockResolvedValue([]),
     getIssue: vi.fn().mockResolvedValue({ number: 1, title: 'Test Issue', user: { login: 'user' }, labels: [], body: 'Issue body' }),
     createReview: vi.fn().mockResolvedValue({ id: 1 }),
+    createIssue: vi.fn().mockResolvedValue({ number: 99, html_url: 'https://github.com/owner/repo/issues/99' }),
   })),
+}));
+
+vi.mock('../src/reporter.js', () => ({
+  analyzeOutput: vi.fn().mockReturnValue({
+    errors: [],
+    suggestedActions: [],
+    summary: 'Nenhum problema detectado automaticamente no output.',
+  }),
+  captureThreadMessages: vi.fn().mockResolvedValue([]),
+  formatReportText: vi.fn().mockReturnValue('relatório de texto'),
+  buildReportEmbed: vi.fn().mockReturnValue({
+    data: { color: 0xFFCC00, title: 'Relatório', fields: [] },
+    addFields: vi.fn().mockReturnThis(),
+  }),
 }));
 
 vi.mock('../src/git.js', () => ({
@@ -1167,5 +1182,43 @@ describe('handleInteraction() — select_project_plan', () => {
     expect(interaction.editReply).toHaveBeenCalledWith(
       expect.objectContaining({ content: expect.stringContaining('inválido') }),
     );
+  });
+});
+
+// ─── commandDefinitions — /report ─────────────────────────────────────────────
+
+describe('commandDefinitions — /report', () => {
+  it('nome do comando é "report" (em inglês)', () => {
+    const reportCmd = commandDefinitions.find((c) => c.name === 'report');
+    expect(reportCmd).toBeDefined();
+    expect(reportCmd.name).toBe('report');
+  });
+
+  it('tem opção "description" obrigatória', () => {
+    const reportCmd = commandDefinitions.find((c) => c.name === 'report');
+    const descOpt = reportCmd.options.find((o) => o.name === 'description');
+    expect(descOpt).toBeDefined();
+    expect(descOpt.required).toBe(true);
+  });
+
+  it('tem opção "severity" opcional com choices: low, medium, high, critical', () => {
+    const reportCmd = commandDefinitions.find((c) => c.name === 'report');
+    const sevOpt = reportCmd.options.find((o) => o.name === 'severity');
+    expect(sevOpt).toBeDefined();
+    expect(sevOpt.required).toBeFalsy();
+    const choiceValues = sevOpt.choices.map((ch) => ch.value);
+    expect(choiceValues).toContain('low');
+    expect(choiceValues).toContain('medium');
+    expect(choiceValues).toContain('high');
+    expect(choiceValues).toContain('critical');
+  });
+
+  it('tem opção "create_issue" opcional do tipo boolean', () => {
+    const reportCmd = commandDefinitions.find((c) => c.name === 'report');
+    const ciOpt = reportCmd.options.find((o) => o.name === 'create_issue');
+    expect(ciOpt).toBeDefined();
+    expect(ciOpt.required).toBeFalsy();
+    // type 5 = BOOLEAN na API do Discord (ApplicationCommandOptionType.Boolean)
+    expect(ciOpt.type).toBe(5);
   });
 });

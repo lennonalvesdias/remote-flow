@@ -213,6 +213,27 @@ export class GitHubClient {
   }
 
   /**
+   * Cria uma nova issue no repositório.
+   * @param {object} opts
+   * @param {string} opts.owner
+   * @param {string} opts.repo
+   * @param {string} opts.title - Título da issue
+   * @param {string} [opts.body] - Corpo da issue (Markdown)
+   * @param {string[]} [opts.labels] - Labels a aplicar
+   * @returns {Promise<object>} Dados da issue criada
+   */
+  async createIssue({ owner, repo, title, body = '', labels = [] }) {
+    try {
+      const { data } = await this._octokit.rest.issues.create({
+        owner, repo, title, body, labels,
+      });
+      return data;
+    } catch (err) {
+      throw _wrapError(err, 'criar issue');
+    }
+  }
+
+  /**
    * Lista issues abertas do repositório (exclui PRs).
    * @param {object} opts
    * @param {string} opts.owner
