@@ -2,6 +2,7 @@
 // Módulo de análise e geração de relatórios de comportamento inesperado de sessões
 
 import { EmbedBuilder } from 'discord.js';
+import { readRecentLogEntries } from './logger.js';
 
 // ─── Constantes ────────────────────────────────────────────────────────────────
 
@@ -91,6 +92,33 @@ function extractContext(text, match) {
 }
 
 // ─── API pública ──────────────────────────────────────────────────────────────
+
+/**
+ * Lê as últimas `limit` entradas do arquivo de log persistente da aplicação.
+ * @param {number} [limit=200] - Máximo de entradas a retornar
+ * @returns {Promise<Array<{ts: string, level: string, component: string, message: string}>>}
+ */
+export async function readRecentLogs(limit = 200) {
+  return readRecentLogEntries(limit);
+}
+
+/**
+ * Analisa entradas de log do bot e retorna erros e avisos recentes.
+ * @param {Array<{ts: string, level: string, component: string, message: string}>} entries
+ * @returns {{ errors: Array, warnings: Array, summary: string }}
+ */
+export function analyzeLogEntries(entries) {
+  if (!entries || entries.length === 0) {
+    return { errors: [], warnings: [], summary: 'Nenhuma entrada de log disponível.' };
+  }
+  const errors = entries.filter((e) => e.level === 'error');
+  const warnings = entries.filter((e) => e.level === 'warn');
+  const total = errors.length + warnings.length;
+  const summary = total === 0
+    ? 'Nenhum erro ou aviso encontrado nos logs recentes do bot.'
+    : `${errors.length} erro(s) e ${warnings.length} aviso(s) encontrado(s) nos logs recentes.`;
+  return { errors, warnings, summary };
+}
 
 /**
  * Analisa o output de uma sessão e retorna erros detectados + sugestões.
@@ -186,6 +214,7 @@ export function formatReportText(data) {
     threadMessages,
     sessionOutput,
     analysis,
+    logEntries,
   } = data;
 
   const lines = [];
@@ -249,6 +278,21 @@ export function formatReportText(data) {
     lines.push('');
   }
 
+  if (logEntries && logEntries.length > 0) {
+    const logAnalysis = analyzeLogEntries(logEntries);
+    const relevantEntries = [...logAnalysis.errors, ...logAnalysis.warnings];
+    if (relevantEntries.length > 0) {
+      lines.push('LOGS RECENTES DO BOT (ERROS/AVISOS)');
+      lines.push(divider);
+      lines.push(logAnalysis.summary);
+      lines.push('');
+      for (const entry of relevantEntries.slice(-20)) {
+        lines.push(`[${entry.ts}] [${entry.level.toUpperCase()}] [${entry.component}] ${entry.message}`);
+      }
+      lines.push('');
+    }
+  }
+
   if (sessionOutput) {
     lines.push('OUTPUT DA SESSÃO');
     lines.push(divider);
@@ -273,7 +317,7 @@ export function formatReportText(data) {
  * @returns {import('discord.js').EmbedBuilder}
  */
 export function buildReportEmbed(data) {
-  const { reportId, timestamp, reporter, description, severity, session, analysis } = data;
+  const { reportId, timestamp, reporter, description, severity, session, analysis, logEntries } = data;
 
   const color = SEVERITY_COLORS[severity] ?? SEVERITY_COLORS.medium;
   const severityLabel = SEVERITY_LABELS[severity] ?? severity;
@@ -306,6 +350,21 @@ export function buildReportEmbed(data) {
     );
   } else {
     embed.addFields({ name: '📌 Sessão', value: 'Nenhuma sessão ativa encontrada nesta thread.', inline: false });
+  }
+
+  if (logEntries && logEntries.length > 0) {
+    const logAnalysis = analyzeLogEntries(logEntries);
+    if (logAnalysis.errors.length > 0 || logAnalysis.warnings.length > 0) {
+      const logSummary = [...logAnalysis.errors, ...logAnalysis.warnings]
+        .slice(-5)
+        .map((e) => `\`[${e.level.toUpperCase()}]\` **${e.component}**: ${e.message.slice(0, 100)}`)
+        .join('\n');
+      embed.addFields({
+        name: '📋 Logs Recentes do Bot',
+        value: logSummary.slice(0, 1024),
+        inline: false,
+      });
+    }
   }
 
   return embed;

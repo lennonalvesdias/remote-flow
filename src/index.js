@@ -19,6 +19,7 @@ import { ALLOWED_USERS, ALLOW_SHARED_SESSIONS, CHANNEL_FETCH_TIMEOUT_MS, SHUTDOW
 import { startHealthServer } from './health.js';
 import { loadSessions, removeSession } from './persistence.js';
 import { initAudit, audit } from './audit.js';
+import { initLogger, logError, logWarn } from './logger.js';
 import { loadModels } from './model-loader.js';
 
 // ─── Validação de configuração ────────────────────────────────────────────────
@@ -103,6 +104,7 @@ client.once('clientReady', async (c) => {
   console.log(`📁 Projetos: ${process.env.PROJECTS_BASE_PATH}`);
   console.log(`🔧 OpenCode: ${process.env.OPENCODE_BIN || 'opencode'}\n`);
   await initAudit();
+  await initLogger();
   await loadModels();
   await registerCommands();
   startHealthServer({ sessionManager, serverManager, startedAt: Date.now() });
@@ -119,7 +121,7 @@ client.on('interactionCreate', async (interaction) => {
       await handleInteraction(interaction, sessionManager);
     }
   } catch (err) {
-    console.error('[interactionCreate] Erro:', err);
+    logError('interactionCreate', `Erro não tratado: ${err?.message ?? String(err)}`);
     // Interações de autocomplete não suportam reply/followUp — nada a fazer
     if (interaction.isAutocomplete()) return;
     // 10062 = token expirado; nenhuma resposta é possível
@@ -264,9 +266,11 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('uncaughtException', (err) => {
   console.error('[uncaughtException]', err);
+  logError('uncaughtException', err?.message ?? String(err));
 });
 process.on('unhandledRejection', (reason) => {
   console.error('[unhandledRejection]', reason);
+  logError('unhandledRejection', reason instanceof Error ? reason.message : String(reason));
 });
 
 // ─── Login ────────────────────────────────────────────────────────────────────

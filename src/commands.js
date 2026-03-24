@@ -26,7 +26,7 @@ import { getAvailableModels } from './model-loader.js';
 import { RateLimiter } from './rate-limiter.js';
 import { audit } from './audit.js';
 import { getGitHubClient } from './github.js';
-import { analyzeOutput, captureThreadMessages, formatReportText, buildReportEmbed } from './reporter.js';
+import { analyzeOutput, captureThreadMessages, formatReportText, buildReportEmbed, readRecentLogs } from './reporter.js';
 import { getRepoInfo, hasChanges, createBranchAndCommit, pushBranch } from './git.js';
 import { PlannotatorClient } from './plannotator-client.js';
 
@@ -1409,6 +1409,14 @@ async function handleReport(interaction, sessionManager) {
     debug('Report', 'Erro ao buscar mensagens da thread: %s', err.message);
   }
 
+  // Ler logs recentes do arquivo de log persistente (melhor esforço)
+  let logEntries = [];
+  try {
+    logEntries = await readRecentLogs(200);
+  } catch (err) {
+    debug('Report', 'Erro ao ler logs persistentes: %s', err.message);
+  }
+
   // Montar dados do relatório
   const reportId     = `RPT-${Date.now().toString(36).toUpperCase()}`;
   const reporter     = interaction.user;
@@ -1426,6 +1434,7 @@ async function handleReport(interaction, sessionManager) {
     },
     description,
     severity,
+    logEntries,
     session: session ? {
       sessionId:       session.sessionId,
       projectPath:     session.projectPath,

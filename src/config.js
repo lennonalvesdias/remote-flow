@@ -77,6 +77,10 @@ export const PERSISTENCE_PATH = process.env.PERSISTENCE_PATH || null;
 export const AUDIT_LOG_PATH = process.env.AUDIT_LOG_PATH ||
   path.join(os.homedir(), '.remote-flow', 'audit.ndjson');
 
+/** Caminho do arquivo de log persistente da aplicação (padrão: ~/.remote-flow/app.log) */
+export const LOG_FILE_PATH = process.env.LOG_FILE_PATH ||
+  path.join(os.homedir(), '.remote-flow', 'app.log');
+
 // ─── Timeouts internos ────────────────────────────────────────────────────────
 
 /** Delay em ms antes de reiniciar servidor OpenCode após crash (padrão: 2000) */
