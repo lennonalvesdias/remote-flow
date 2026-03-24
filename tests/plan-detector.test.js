@@ -4,10 +4,10 @@ import { PlanReviewDetector } from '../src/plan-detector.js';
 
 // ─── Mock PlannotatorClient ──────────────────────────────────────────────────
 
+const MockPlannotatorClient = vi.hoisted(() => vi.fn());
+
 vi.mock('../src/plannotator-client.js', () => ({
-  PlannotatorClient: vi.fn().mockImplementation(() => ({
-    getPlan: vi.fn().mockResolvedValue(null),
-  })),
+  PlannotatorClient: MockPlannotatorClient,
 }));
 
 // ─── Testes ──────────────────────────────────────────────────────────────────
@@ -17,6 +17,9 @@ describe('PlanReviewDetector', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    MockPlannotatorClient.mockImplementation(function () {
+      this.getPlan = vi.fn().mockResolvedValue(null);
+    });
     detector = new PlanReviewDetector({
       plannotatorBaseUrl: 'http://localhost:5100',
       sessionId: 'test-session-1',
@@ -25,7 +28,7 @@ describe('PlanReviewDetector', () => {
   });
 
   afterEach(() => {
-    detector.stop();
+    if (detector) detector.stop();
     vi.useRealTimers();
     vi.restoreAllMocks();
   });

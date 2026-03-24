@@ -299,6 +299,7 @@ function createComponentInteraction({
   return {
     isStringSelectMenu: vi.fn().mockReturnValue(isSelectMenu),
     isButton: vi.fn().mockReturnValue(isButton),
+    isModalSubmit: vi.fn().mockReturnValue(false),
     customId,
     values,
     user: { id: uid, username: 'testuser' },
