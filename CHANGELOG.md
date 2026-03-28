@@ -6,6 +6,22 @@ O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.
 
 ---
 
+## [1.6.2] — 2026-03-28
+
+### 🐛 Fixed
+- Corrigido deadlock de fila após `question.asked`: evento `message.part.delta` residual não reseta mais o status `waiting_input` → `running` quando há pergunta pendente (`_pendingQuestion`) (RF-07)
+- Fila de mensagens agora é drenada ao receber `question.asked`, processando respostas enfileiradas durante a janela de transição
+
+### 🔧 Changed
+- `PlannotatorClient._fetch()`: logs de retry consolidados — apenas a falha final é registrada (1 log/request em vez de 3)
+- `PlanReviewDetector._poll()`: supressão de logs repetitivos de falha consecutiva (máx. 1 log a cada 30 segundos)
+
+### 📝 Docs
+- Logs de transição de status enriquecidos com contexto (sessionId, queue size, pendingQuestion) para facilitar diagnóstico
+- Aviso de fila potencialmente presa adicionado ao `_checkTimeouts()` (inatividade > 60s com mensagens enfileiradas)
+
+---
+
 ## [1.6.1] — 2026-03-28
 
 ### 🐛 Fixed

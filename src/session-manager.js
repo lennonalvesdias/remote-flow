@@ -216,12 +216,16 @@ class OpenCodeSession extends EventEmitter {
       const position = this._messageQueue.length + 1;
       this._messageQueue.push(text);
       this.emit('queue-change', this._messageQueue.length);
+      debug('OpenCodeSession', '📮 Mensagem enfileirada (pos=%d, status=%s): "%s..."',
+        position, this.status, text.slice(0, 50));
       return { queued: true, position };
     }
 
     // Sessão idle ou waiting_input — envia imediatamente via drain
     this._messageQueue.push(text);
     this.emit('queue-change', this._messageQueue.length);
+    debug('OpenCodeSession', '📨 Enviando mensagem imediatamente (status=%s): "%s..."',
+      this.status, text.slice(0, 50));
     await this._drainMessageQueue();
     return { queued: false, position: 0 };
   }
@@ -377,9 +381,12 @@ class OpenCodeSession extends EventEmitter {
         }
 
         // Se o agente voltou a emitir output enquanto aguardávamos input, retorna a running
-        if (this.status === 'waiting_input') {
+        // Apenas se não há pergunta pendente — evita deadlock de fila (Fix 1.1)
+        if (this.status === 'waiting_input' && !this._pendingQuestion) {
           this.status = 'running';
           this.emit('status', 'running');
+        } else if (this.status === 'waiting_input' && this._pendingQuestion) {
+          debug('OpenCodeSession', '📝 Transição running suprimida — delta durante pergunta pendente (id=%s)', this._pendingQuestion.id);
         }
 
         this.emit('output', clean);
@@ -504,6 +511,11 @@ class OpenCodeSession extends EventEmitter {
         this.lastActivityAt = new Date();
         this.emit('status', 'waiting_input');
         this.emit('question', { questionId, questions });
+        // Drena mensagens enfileiradas durante a janela running→waiting_input (Fix 1.2)
+        this._drainMessageQueue().catch((err) => {
+          console.error('[OpenCodeSession:%s] ⚠️ Erro ao drenar fila após pergunta (status=%s, queue=%d): %s',
+            this.sessionId.slice(0, 8), this.status, this._messageQueue.length, err.message);
+        });
         break;
       }
 
@@ -520,6 +532,12 @@ class OpenCodeSession extends EventEmitter {
    * @private
    */
   _handleIdleTransition() {
+    debug('OpenCodeSession', '🔄 Transição idle: status=%s queue=%d pendingQuestion=%s recentOutput=%s',
+      this.status,
+      this._messageQueue.length,
+      !!this._pendingQuestion,
+      JSON.stringify(this._recentOutput.slice(-100))
+    );
     if (this.status === 'running') {
       // Agente concluiu — verifica se está aguardando input
       if (isWaitingForInput(this._recentOutput)) {
@@ -531,7 +549,8 @@ class OpenCodeSession extends EventEmitter {
       }
       // Sessão saiu de `running` — processa mensagens enfileiradas
       this._drainMessageQueue().catch((err) => {
-        console.error('[OpenCodeSession] ⚠️ Erro ao drenar fila de mensagens:', err.message);
+        console.error('[OpenCodeSession:%s] ⚠️ Erro ao drenar fila pós-idle (status=%s, queue=%d): %s',
+          this.sessionId.slice(0, 8), this.status, this._messageQueue.length, err.message);
       });
       // Reseta o detector de plano para um novo ciclo (caso o agente tenha produzido novo plano)
       if (this._planDetector) {
@@ -544,7 +563,8 @@ class OpenCodeSession extends EventEmitter {
       this.emit('status', 'finished');
       // Sessão saiu de `waiting_input` — processa mensagens enfileiradas
       this._drainMessageQueue().catch((err) => {
-        console.error('[OpenCodeSession] ⚠️ Erro ao drenar fila de mensagens:', err.message);
+        console.error('[OpenCodeSession:%s] ⚠️ Erro ao drenar fila pós-waiting_input (status=%s, queue=%d): %s',
+          this.sessionId.slice(0, 8), this.status, this._messageQueue.length, err.message);
       });
     }
   }
@@ -778,6 +798,17 @@ class SessionManager {
     for (const session of toExpire) {
       session.emit('timeout');
       await this._expireSession(session);
+    }
+
+    // Aviso de fila possivelmente presa (sessão running inativa > 60s com mensagens na fila)
+    for (const session of this._sessions.values()) {
+      if (session._messageQueue.length > 0 && session.status === 'running') {
+        const idleMs = Date.now() - session.lastActivityAt.getTime();
+        if (idleMs > 60_000) {
+          console.warn('[SessionManager] ⚠️ Fila possivelmente presa — sessão=%s status=%s queue=%d inativa=%ds',
+            session.sessionId.slice(0, 8), session.status, session._messageQueue.length, Math.round(idleMs / 1000));
+        }
+      }
     }
   }
 

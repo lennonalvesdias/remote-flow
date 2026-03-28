@@ -29,6 +29,8 @@ export class PlanReviewDetector extends EventEmitter {
     this._active = false;
     this._planReady = false;   // true quando 'plan-ready' já foi emitido
     this._resolved = false;    // true quando o review foi resolvido
+    this._consecutiveFailures = 0;    // contagem de falhas consecutivas (servidor inacessível)
+    this._lastFailureLoggedAt = 0;    // timestamp do último log de falha (ms)
   }
 
   // ─── Ciclo de vida ────────────────────────────────────────────────────────
@@ -62,6 +64,8 @@ export class PlanReviewDetector extends EventEmitter {
   reset() {
     this._planReady = false;
     this._resolved = false;
+    this._consecutiveFailures = 0;
+    this._lastFailureLoggedAt = 0;
     debug('PlanDetector', '🔄 Estado resetado para novo ciclo — sessão=%s', this.sessionId);
   }
 
@@ -78,6 +82,12 @@ export class PlanReviewDetector extends EventEmitter {
     try {
       const plan = await this.client.getPlan();
 
+      if (plan !== null) {
+        // Servidor acessível — reseta contadores de falha consecutiva
+        this._consecutiveFailures = 0;
+        this._lastFailureLoggedAt = 0;
+      }
+
       if (plan !== null && !this._planReady && !this._resolved) {
         // Plannotator respondeu — plano aguardando review
         this._planReady = true;
@@ -90,6 +100,14 @@ export class PlanReviewDetector extends EventEmitter {
         this.emit('plan-resolved');
         this.stop();
         return;
+      } else if (plan === null && !this._planReady) {
+        // Servidor inacessível — suprime logs repetitivos (máx. 1 log a cada 30s)
+        this._consecutiveFailures += 1;
+        const now = Date.now();
+        if (this._consecutiveFailures === 1 || (now - this._lastFailureLoggedAt) > 30_000) {
+          debug('PlanDetector', '⚙️ Servidor inacessível (falha #%d) — sessão=%s', this._consecutiveFailures, this.sessionId);
+          this._lastFailureLoggedAt = now;
+        }
       }
     } catch (err) {
       // ECONNREFUSED e erros similares são esperados enquanto plannotator não iniciou

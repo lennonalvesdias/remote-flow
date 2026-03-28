@@ -1,6 +1,11 @@
 // tests/plannotator-client.test.js
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PlannotatorClient } from '../src/plannotator-client.js';
+import { debug } from '../src/utils.js';
+
+vi.mock('../src/utils.js', () => ({
+  debug: vi.fn(),
+}));
 
 // ─── Mock fetch ──────────────────────────────────────────────────────────────
 
@@ -88,6 +93,32 @@ describe('PlannotatorClient', () => {
     it('lança erro quando o servidor retorna status de erro', async () => {
       globalThis.fetch = makeFetchMock(500, null);
       await expect(client.deny({ feedback: 'x' })).rejects.toThrow();
+    });
+  });
+
+  // ─── _fetch — retry logging ───────────────────────────────────────────────────
+
+  describe('_fetch — retry logging', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('loga apenas uma vez na falha final, não por tentativa', async () => {
+      globalThis.fetch = vi.fn().mockRejectedValue(new TypeError('fetch failed'));
+      vi.mocked(debug).mockClear();
+
+      const promise = client.getPlan();
+      await vi.runAllTimersAsync();
+      await promise;
+
+      const plannotatorCalls = vi.mocked(debug).mock.calls.filter(
+        ([namespace]) => namespace === 'PlannotatorClient'
+      );
+      expect(plannotatorCalls).toHaveLength(1);
     });
   });
 });

@@ -102,10 +102,10 @@ export class PlannotatorClient {
       } catch (err) {
         clearTimeout(timeoutId);
         lastError = err;
-        debug('PlannotatorClient', '⚠️ Tentativa %d falhou: %s', attempt + 1, err.message);
       }
     }
 
+    debug('PlannotatorClient', '⚠️ %s %s — falhou após %d tentativa(s): %s', method, path, MAX_RETRIES + 1, lastError.message);
     throw lastError;
   }
 }

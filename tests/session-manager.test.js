@@ -682,6 +682,50 @@ describe('OpenCodeSession', () => {
     expect(() => session.resolvePermission()).not.toThrow()
     expect(session._pendingPermissionId).toBeNull()
   })
+
+  // ─── Fix 1.1 — delta SSE não reseta status com pergunta pendente ─────────────
+
+  it('message.part.delta não reseta status para running quando _pendingQuestion existe', async () => {
+    await session.start(serverManager)
+    session.status = 'waiting_input'
+    session._pendingQuestion = { id: 'q1', questions: [] }
+    const statuses = []
+    session.on('status', (s) => statuses.push(s))
+    session.handleSSEEvent({
+      type: 'message.part.delta',
+      data: { properties: { field: 'text', delta: 'some text' } }
+    })
+    expect(session.status).toBe('waiting_input')
+    expect(statuses).not.toContain('running')
+  })
+
+  // ─── Fix 1.2 — queueMessage envia imediatamente em waiting_input ─────────────
+
+  it('queueMessage envia imediatamente quando status é waiting_input', async () => {
+    await session.start(serverManager)
+    session.status = 'waiting_input'
+    session._pendingQuestion = { id: 'q1', questions: [] }
+    client.sendMessage.mockClear()
+    const result = await session.queueMessage('response text')
+    expect(result).toEqual({ queued: false, position: 0 })
+    expect(client.sendMessage).toHaveBeenCalledWith(expect.any(String), expect.any(String), 'response text')
+  })
+
+  // ─── Fix 1.2 — question.asked drena fila de mensagens ───────────────────────
+
+  it('question.asked drena fila de mensagens enfileiradas', async () => {
+    await session.start(serverManager)
+    session.status = 'running'
+    session._messageQueue = ['response text']
+    client.sendMessage.mockClear()
+    session.handleSSEEvent({
+      type: 'question.asked',
+      data: { properties: { id: 'q-drain-1', question: 'Continue?' } }
+    })
+    await vi.runAllTimersAsync()
+    expect(client.sendMessage).toHaveBeenCalled()
+    expect(session._messageQueue).toHaveLength(0)
+  })
 })
 
 // ─── SessionManager ───────────────────────────────────────────────────────────
