@@ -201,6 +201,7 @@ consistency, discoverability, and alignment with Discord's global ecosystem.
   intentional for Windows compatibility.
 - **ANSI stripping** — always strip ANSI escape codes before sending output to Discord.
 - **Session retention** — closed sessions are retained for 10 minutes for status queries, then GC'd.
+- **Auxiliary documentation** — all supplementary `.md` files (analysis documents, references, pipeline docs, research notes, etc.) must reside in `docs/`. The repository root should only contain `README.md`, `CHANGELOG.md`, `AGENTS.md`, and other mandatory top-level files.
 
 ---
 

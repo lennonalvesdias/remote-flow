@@ -27,6 +27,8 @@ O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.
 
 ### 🔧 Changed
 - Atualização de dependência: `picomatch` 4.0.3 → 4.0.4
+- Documentos auxiliares `FORMATTING_PIPELINE.md` e `QUICK_REFERENCE.md` movidos para `docs/`
+- AGENTS.md: adicionada regra de organização de arquivos `.md` auxiliares em `docs/`
 
 ---
 
