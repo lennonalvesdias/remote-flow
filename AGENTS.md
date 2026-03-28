@@ -246,6 +246,30 @@ Reference spec requirement IDs where applicable: `feat(RF-04): implement input r
 
 ---
 
+## Changelog Requirements
+
+**Every code modification must include a CHANGELOG.md update before being committed.**
+
+### Required for every commit that changes behavior
+
+1. **Update CHANGELOG.md** — add an entry to the appropriate version block (or create a new version block if warranted):
+   - Use the format `## [X.Y.Z] — YYYY-MM-DD`
+   - Group changes under: `### ✨ Added`, `### 🔧 Changed`, `### 🐛 Fixed`, `### ♻️ Refactored`, `### 🔒 Security`
+   - Write entries in **Portuguese (PT-BR)**
+   - Reference spec IDs where applicable (e.g., RF-04)
+   - Follow [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/) conventions
+
+### Rules
+
+- **Never commit without a CHANGELOG entry.** If your change adds, removes, or modifies behavior, document it.
+- **Dependency bumps** go under a `### 🔧 Changed` entry (e.g., "Atualização de dependência: `picomatch` 4.0.3 → 4.0.4").
+- **Test-only or docs-only changes** may use a `### 📝 Docs` or `### 🧪 Tests` entry.
+- **Patch fixes** (bug corrections without new features) increment the patch version (e.g., 1.4.0 → 1.4.1).
+- **New features** increment the minor version (e.g., 1.4.0 → 1.5.0).
+- **Breaking changes** increment the major version (e.g., 1.x.x → 2.0.0).
+
+---
+
 ## Windows Notes
 
 - The service installer uses **NSSM** (`scripts/install-service.ps1`). Run it as Administrator.

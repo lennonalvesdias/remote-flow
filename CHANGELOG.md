@@ -6,6 +6,30 @@ O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.
 
 ---
 
+## [1.5.0] — 2026-03-28
+
+### ✨ Added
+- Módulo `src/plan-detector.js` — detecção de requisições de revisão de planos via Discord
+- Módulo `src/plannotator-client.js` — cliente para integração com o serviço plannotator
+- Módulo `src/model-loader.js` — utilitários de carregamento de modelos
+- Revisão paralela de planos via Discord + integração com plannotator (RF-plan-review)
+- Comando `/report` — analisa erros recentes de sessão e gera relatório de comportamento
+- Módulo `src/logger.js` — persistência de logs em arquivo
+- Módulo `src/reporter.js` — geração de relatórios com análise de erros recentes
+- Módulo `src/utils.js` — utilitários compartilhados entre módulos
+- Módulo `src/audit.js` — funcionalidades de auditoria de sessão
+- Comando `/reconnect` — aciona manualmente a reconexão SSE
+- Reconexão SSE resiliente com lógica de backoff melhorada
+
+### 🐛 Fixed
+- Regex com estado, limite de mensagens Discord e timestamp no módulo `reporter`
+- Mocks de teste para `PlanReviewDetector` e `interaction.isModalSubmit`
+
+### 🔧 Changed
+- Atualização de dependência: `picomatch` 4.0.3 → 4.0.4
+
+---
+
 ## [1.4.0] — 2026-03-22
 
 ### ✨ Added
