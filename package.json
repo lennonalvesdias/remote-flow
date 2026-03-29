@@ -14,7 +14,7 @@
     "test:ci": "vitest run",
     "install-service": "powershell -ExecutionPolicy Bypass -File scripts/install-service.ps1",
     "kill-port": "powershell -ExecutionPolicy Bypass -File scripts/kill-port.ps1",
-    "whisper": ".venv-whisper\\Scripts\\python whisper_server/server.py"
+    "whisper": "powershell -ExecutionPolicy Bypass -File scripts/kill-port.ps1 -Port 8765 && .venv-whisper\\Scripts\\python whisper_server/server.py"
   },
   "dependencies": {
     "discord.js": "^14.18.0",

@@ -54,11 +54,13 @@ const client = new Client({
 
 let transcriptionAvailable = false;
 let _lastTranscriptionHealthCheck = 0;
-const TRANSCRIPTION_HEALTH_TTL_MS = 60_000; // reavalia provider a cada 60s
+const TTL_HEALTHY_MS = 60_000;    // reavalia a cada 60s quando saudável
+const TTL_UNAVAILABLE_MS = 15_000; // reavalia a cada 15s quando indisponível (recuperação rápida)
 
 /** Verifica (ou usa cache) se o provider de transcrição está disponível. */
 async function isTranscriptionAvailable() {
-  if (Date.now() - _lastTranscriptionHealthCheck > TRANSCRIPTION_HEALTH_TTL_MS) {
+  const ttl = transcriptionAvailable ? TTL_HEALTHY_MS : TTL_UNAVAILABLE_MS;
+  if (Date.now() - _lastTranscriptionHealthCheck > ttl) {
     transcriptionAvailable = await transcriptionProvider.checkHealth();
     _lastTranscriptionHealthCheck = Date.now();
   }
@@ -130,12 +132,25 @@ client.once('clientReady', async (c) => {
   if (transcriptionAvailable) {
     console.log(`✅ Transcrição de voz habilitada (provider: ${transcriptionProvider.name})`);
   } else {
-    console.warn(`⚠️  Transcrição de voz indisponível (provider: ${transcriptionProvider.name})`);
-    if (transcriptionProvider.name === 'local') {
-      console.warn('   Inicie com: .venv-whisper\\Scripts\\activate && python whisper_server/server.py');
-    } else {
-      console.warn('   Verifique se TRANSCRIPTION_API_KEY está configurada corretamente.');
-    }
+    console.warn(`[WhisperClient] ⚠️  Servidor indisponível no startup — iniciando sondagem de fundo...`);
+    // Sonda em background: tenta até 6 vezes com intervalo de 10s (total ~60s)
+    let _probeCount = 0;
+    const _MAX_PROBES = 6;
+    const _PROBE_INTERVAL_MS = 10_000;
+    const _probeTimer = setInterval(async () => {
+      _probeCount++;
+      const ok = await transcriptionProvider.checkHealth();
+      if (ok) {
+        transcriptionAvailable = true;
+        _lastTranscriptionHealthCheck = Date.now();
+        console.info(`[WhisperClient] ✅ Servidor disponível após ${_probeCount * (_PROBE_INTERVAL_MS / 1000)}s de espera.`);
+        clearInterval(_probeTimer);
+      } else if (_probeCount >= _MAX_PROBES) {
+        console.warn(`⚠️  Transcrição de voz indisponível (provider: ${transcriptionProvider.name})`);
+        console.warn(`   Inicie com: .venv-whisper\\Scripts\\activate && python whisper_server/server.py`);
+        clearInterval(_probeTimer);
+      }
+    }, _PROBE_INTERVAL_MS);
   }
   await registerCommands();
   startHealthServer({ sessionManager, serverManager, startedAt: Date.now() });

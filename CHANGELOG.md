@@ -6,6 +6,38 @@ O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.
 
 ---
 
+## [1.8.3] — 2026-03-29
+
+### 🐛 Fixed
+- `whisper_server/server.py`: verificação de porta antes de iniciar — aborta com mensagem clara se a porta 8765 já está em uso, evitando processo fantasma silencioso (RF-02)
+- `package.json`: script `npm run whisper` agora encerra automaticamente qualquer processo anterior na porta 8765 via `scripts/kill-port.ps1` antes de iniciar o servidor
+
+---
+
+## [1.8.2] — 2026-03-29
+
+### 🐛 Fixed
+- `src/index.js`: sondagem ativa de fundo ao iniciar — se o servidor Whisper não responder no startup, o bot tenta novamente a cada 10s por até 60s antes de exibir o aviso de indisponibilidade; evita falso negativo quando o modelo CUDA ainda está carregando
+
+---
+
+## [1.8.1] — 2026-03-29
+
+### 🔧 Changed
+- `whisper_server/server.py`: cadeia de fallback CUDA multi-estágio (int8 → float16 → float32 → CPU) com mensagem de instalação para `cublas64_12.dll`
+- `whisper_server/requirements.txt`: adicionado `ctranslate2>=4.0.0` com comentários sobre CUDA Toolkit 12
+- `src/whisper-client.js`: timeout de health check aumentado de 3s para 5s
+- `src/index.js`: TTL de recheck de transcrição diferenciado — 60s quando saudável, 15s quando indisponível
+- `whisper_server/server.py`: liberação explícita de VRAM (`del` + `gc.collect()`) entre tentativas CUDA; executor sem bloqueio (`shutdown(wait=False)`) no timeout de transcrição; cadeia de fallback CUDA respeita `WHISPER_COMPUTE` do usuário
+- `src/whisper-client.js`: margem de +10s no timeout do cliente sobre o timeout do servidor
+- `whisper_server/server.py`: descoberta automática de DLLs nvidia-* via `os.add_dll_directory()` antes do import do `faster_whisper` — resolve `cublas64_12.dll not found` sem CUDA Toolkit completo
+- `whisper_server/requirements.txt`: adicionado `nvidia-cublas-cu12` como dependência explícita
+
+### ✨ Added
+- `whisper_server/setup.ps1`: validação de Python ≥ 3.10 e verificação de `cublas64_12.dll` com indicação da URL de download do CUDA Toolkit 12
+
+---
+
 ## [1.8.0] — 2026-03-29
 
 ### 🧪 Tests

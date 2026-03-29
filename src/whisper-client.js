@@ -22,7 +22,7 @@ export async function transcribeAudio(audioBuffer, filename = 'voice.ogg') {
   const response = await fetch(`${WHISPER_URL}/transcribe`, {
     method: 'POST',
     body: form,
-    signal: AbortSignal.timeout(WHISPER_TRANSCRIPTION_TIMEOUT_MS),
+    signal: AbortSignal.timeout(WHISPER_TRANSCRIPTION_TIMEOUT_MS + 10_000),
   });
 
   if (!response.ok) {
@@ -44,7 +44,7 @@ export async function transcribeAudio(audioBuffer, filename = 'voice.ogg') {
 export async function checkWhisperHealth() {
   try {
     const response = await fetch(`${WHISPER_URL}/health`, {
-      signal: AbortSignal.timeout(3_000),
+      signal: AbortSignal.timeout(5_000),
     });
     return response.ok;
   } catch (err) {

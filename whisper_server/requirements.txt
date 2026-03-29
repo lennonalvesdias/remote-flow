@@ -1,4 +1,9 @@
+# Para suporte a CUDA: instale CUDA Toolkit 12.x via https://developer.nvidia.com/cuda-downloads
+# ctranslate2 ≥ 4.0 requer cuBLAS 12 (cublas64_12.dll) em Windows
+# nvidia-cublas-cu12 fornece cublas64_12.dll via pip (alternativa ao CUDA Toolkit completo)
+ctranslate2>=4.0.0
 faster-whisper>=1.0.0
 flask>=3.0.0
 waitress>=3.0.0
 numpy>=1.24.0
+nvidia-cublas-cu12

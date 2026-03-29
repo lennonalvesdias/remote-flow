@@ -5,12 +5,56 @@
 # ─── Imports ──────────────────────────────────────────────────────────────────
 
 import os
+import gc
 import tempfile
 import logging
 import concurrent.futures
 import pathlib
 import datetime
+import numpy as np
 from flask import Flask, request, jsonify
+
+# ─── CUDA DLL Discovery (Windows) ────────────────────────────────────────────
+# ctranslate2 não descobre automaticamente DLLs instaladas via pip nvidia-cublas-cu12.
+# Registramos o diretório antes de qualquer import do faster_whisper/ctranslate2.
+import sys as _sys
+import pathlib as _pathlib
+
+
+def _register_nvidia_dll_dirs() -> None:
+    """Adiciona diretórios de DLLs nvidia-* ao loader de DLLs do Windows.
+
+    Registra via dois mecanismos:
+    - os.add_dll_directory: usado pelo loader de extensões Python (.pyd)
+    - os.environ["PATH"]: usado pelo LoadLibrary do C++ do ctranslate2, que
+      carrega as libs CUDA (cublas, etc.) de forma lazy durante a inferência.
+    """
+    if _sys.platform != "win32":
+        return
+    try:
+        _sp = _pathlib.Path(_sys.prefix) / "Lib" / "site-packages" / "nvidia"
+        if not _sp.is_dir():
+            return
+        _seen_dirs: set[str] = set()
+        for _bin_dir in _sp.rglob("*.dll"):
+            _dir = str(_bin_dir.parent)
+            if _dir in _seen_dirs:
+                continue
+            _seen_dirs.add(_dir)
+            try:
+                os.add_dll_directory(_dir)
+            except (OSError, ValueError):
+                pass
+            # ctranslate2 carrega CUDA libs via LoadLibrary (C++) que usa PATH,
+            # não os.add_dll_directory — por isso injetamos no PATH também.
+            if _dir not in os.environ.get("PATH", ""):
+                os.environ["PATH"] = _dir + os.pathsep + os.environ.get("PATH", "")
+    except Exception:
+        pass
+
+
+_register_nvidia_dll_dirs()
+
 from faster_whisper import WhisperModel
 from waitress import serve
 
@@ -54,34 +98,89 @@ MAX_FILE_SIZE = 25 * 1024 * 1024  # 25 MB
 ALLOWED_EXTENSIONS = {".ogg", ".wav", ".mp3", ".webm", ".mp4", ".m4a", ".flac"}
 TRANSCRIPTION_TIMEOUT = 120  # segundos
 
+# ─── Guarda de porta ──────────────────────────────────────────────────────────
+
+import socket as _socket
+
+
+def _check_port_free(host: str, port: int) -> bool:
+    """Verifica se a porta está livre para uso."""
+    with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as _s:
+        _s.settimeout(1)
+        result = _s.connect_ex((host, port))
+        return result != 0  # 0 = alguém já está ouvindo
+
+
+if not _check_port_free(HOST, PORT):
+    logger.error(
+        f"[WhisperServer] ❌ Porta {PORT} já está em uso. "
+        f"Encerre o processo anterior antes de reiniciar. "
+        f"Execute: netstat -ano | findstr :{PORT}"
+    )
+    _sys.exit(1)
+
 # ─── Carregamento do modelo ────────────────────────────────────────────────────
 
-logger.info(
-    f'[WhisperServer] ⚙️  Carregando modelo "{MODEL_SIZE}" em {DEVICE} ({COMPUTE_TYPE})...'
-)
-model = WhisperModel(MODEL_SIZE, device=DEVICE, compute_type=COMPUTE_TYPE)
-logger.info("[WhisperServer] ✅ Modelo carregado com sucesso.")
+# Cadeia de fallback CUDA: inicia com o compute type preferido pelo usuário (WHISPER_COMPUTE),
+# depois tenta os demais progressivamente antes de desistir do GPU e usar CPU como último recurso.
+_user_compute = COMPUTE_TYPE  # already parsed from WHISPER_COMPUTE env var
+_CUDA_FALLBACK_CHAIN = [("cuda", _user_compute)]
+for _ct in ["int8", "float16", "float32"]:
+    if _ct != _user_compute:
+        _CUDA_FALLBACK_CHAIN.append(("cuda", _ct))
 
-# ─── Validação de CUDA ────────────────────────────────────────────────────────
+
+def _try_load_and_validate(device, compute_type):
+    """Carrega o modelo e valida CUDA com inferência de teste. Lança exceção em falha."""
+    candidate = WhisperModel(MODEL_SIZE, device=device, compute_type=compute_type)
+    try:
+        if device == "cuda":
+            _test_audio = np.zeros(3200, dtype=np.float32)  # 0.2s de silêncio
+            list(candidate.transcribe(_test_audio, language=LANGUAGE)[0])
+        return candidate
+    except Exception:
+        del candidate
+        gc.collect()
+        raise
+
+
+model = None
 
 if DEVICE == "cuda":
-    logger.info("[WhisperServer] 🔍 Validando CUDA com inferência de teste...")
-    try:
-        import numpy as np
-
-        _test_audio = np.zeros(3200, dtype=np.float32)  # 0.2s de silêncio
-        list(model.transcribe(_test_audio, language=LANGUAGE)[0])
-        logger.info("[WhisperServer] ✅ CUDA validado e funcional.")
-    except Exception as _cuda_err:
-        logger.warning(
-            f"[WhisperServer] ⚠️  CUDA indisponível ({_cuda_err}). "
-            "Recarregando modelo em CPU..."
+    for _dev, _ctype in _CUDA_FALLBACK_CHAIN:
+        logger.info(
+            f'[WhisperServer] ⚙️  Tentando modelo "{MODEL_SIZE}" em {_dev} ({_ctype})...'
         )
-        del model
-        DEVICE = "cpu"
-        COMPUTE_TYPE = "int8"
-        model = WhisperModel(MODEL_SIZE, device=DEVICE, compute_type=COMPUTE_TYPE)
-        logger.info("[WhisperServer] ✅ Modelo recarregado em CPU.")
+        try:
+            model = _try_load_and_validate(_dev, _ctype)
+            DEVICE = _dev
+            COMPUTE_TYPE = _ctype
+            logger.info(
+                f"[WhisperServer] ✅ Modelo carregado e validado em {DEVICE} ({COMPUTE_TYPE})."
+            )
+            break
+        except Exception as _err:
+            _err_str = str(_err)
+            logger.warning(
+                f"[WhisperServer] ⚠️  Falha ao carregar em {_dev} ({_ctype}): {_err_str}"
+            )
+            if "cublas64_12.dll" in _err_str or "cannot be loaded" in _err_str:
+                logger.warning(
+                    "[WhisperServer] 💡 Dica: instale o CUDA Toolkit 12.x em "
+                    "https://developer.nvidia.com/cuda-downloads e reinicie."
+                )
+
+if model is None:
+    # Fallback final: CPU (ou DEVICE já era "cpu" desde o início)
+    _cpu_device = "cpu" if DEVICE == "cuda" else DEVICE
+    _cpu_compute = "int8" if DEVICE == "cuda" else COMPUTE_TYPE
+    logger.info(
+        f'[WhisperServer] ⚙️  Carregando modelo "{MODEL_SIZE}" em {_cpu_device} ({_cpu_compute})...'
+    )
+    model = WhisperModel(MODEL_SIZE, device=_cpu_device, compute_type=_cpu_compute)
+    DEVICE = _cpu_device
+    COMPUTE_TYPE = _cpu_compute
+    logger.info(f"[WhisperServer] ✅ Modelo carregado em {DEVICE} ({COMPUTE_TYPE}).")
 
 # ─── Aplicação Flask ──────────────────────────────────────────────────────────
 
@@ -150,15 +249,18 @@ def transcribe():
             text = " ".join(seg.text.strip() for seg in segments).strip()
             return text, info.language, info.duration
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(_do_transcribe)
-            try:
-                text, detected_language, duration = future.result(
-                    timeout=TRANSCRIPTION_TIMEOUT
-                )
-            except concurrent.futures.TimeoutError:
-                logger.error("[WhisperServer] ❌ Timeout na transcrição (120s).")
-                return jsonify({"error": "Timeout na transcrição."}), 504
+        # Python 3.9+ — cancel_futures=True evita bloquear a thread do Waitress
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(_do_transcribe)
+        try:
+            text, detected_language, duration = future.result(
+                timeout=TRANSCRIPTION_TIMEOUT
+            )
+            executor.shutdown(wait=False)
+        except concurrent.futures.TimeoutError:
+            executor.shutdown(wait=False, cancel_futures=True)
+            logger.error("[WhisperServer] ❌ Timeout na transcrição (120s).")
+            return jsonify({"error": "Timeout na transcrição."}), 504
 
         logger.info(
             f"[WhisperServer] ✅ Transcrição concluída: {len(text)} chars "

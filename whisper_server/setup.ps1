@@ -4,7 +4,7 @@
 # Execute a partir da raiz do projeto remote-flow:
 #   .\whisper_server\setup.ps1
 #
-# Pre-requisito: Python 3.8+ no PATH, ou `uv` disponivel (https://docs.astral.sh/uv/).
+# Pre-requisito: Python 3.10+ no PATH, ou `uv` disponivel (https://docs.astral.sh/uv/).
 
 $ErrorActionPreference = "Stop"
 
@@ -32,7 +32,19 @@ $UseUv = $false
 try {
     $pyOut = & python --version 2>&1
     if ($LASTEXITCODE -eq 0 -and ($pyOut -notmatch "Microsoft Store")) {
-        $PythonAvailable = $true
+        # Verifica versão mínima: Python 3.10+
+        if ($pyOut -match "Python (\d+)\.(\d+)") {
+            $pyMajor = [int]$Matches[1]
+            $pyMinor = [int]$Matches[2]
+            if ($pyMajor -gt 3 -or ($pyMajor -eq 3 -and $pyMinor -ge 10)) {
+                $PythonAvailable = $true
+            } else {
+                Write-Host "[WhisperServer] ⚠️  Python $pyMajor.$pyMinor encontrado — necessário 3.10+." -ForegroundColor Yellow
+                Write-Host "   Tentando 'uv venv --python 3.12' como alternativa..." -ForegroundColor Yellow
+            }
+        } else {
+            $PythonAvailable = $true
+        }
     }
 } catch {
     $PythonAvailable = $false
@@ -76,7 +88,46 @@ if ($UseUv) {
 }
 Write-Host "[WhisperServer] Dependencias instaladas." -ForegroundColor Green
 
-# --- Passo 4: Pre-baixar o modelo Whisper ------------------------------------
+# --- Passo 4: Verificar cublas64_12.dll (CUDA 12) ----------------------------
+
+Write-Host ""
+Write-Host "[WhisperServer] Verificando cublas64_12.dll (necessário para suporte CUDA 12)..." -ForegroundColor Cyan
+
+$cublasFound = $false
+
+# Tenta where.exe primeiro (encontra DLLs no PATH do sistema)
+try {
+    $whereResult = & where.exe cublas64_12.dll 2>&1
+    if ($LASTEXITCODE -eq 0 -and $whereResult) {
+        $cublasFound = $true
+        Write-Host "[WhisperServer] cublas64_12.dll encontrado no PATH: $whereResult" -ForegroundColor Green
+    }
+} catch { }
+
+# Se não encontrou no PATH, busca no diretório padrão do CUDA Toolkit
+if (-not $cublasFound) {
+    $cudaBasePath = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA"
+    if (Test-Path $cudaBasePath) {
+        $found = Get-ChildItem -Path $cudaBasePath -Recurse -Filter "cublas64_12.dll" -ErrorAction SilentlyContinue
+        if ($found) {
+            $cublasFound = $true
+            Write-Host "[WhisperServer] cublas64_12.dll encontrado em: $($found[0].FullName)" -ForegroundColor Green
+        }
+    }
+}
+
+if ($cublasFound) {
+    Write-Host "[WhisperServer] ✅ cublas64_12.dll disponível — suporte CUDA 12 ativo." -ForegroundColor Green
+} else {
+    Write-Host ""
+    Write-Host "⚠️  cublas64_12.dll NÃO encontrado." -ForegroundColor Yellow
+    Write-Host "   O Whisper Server tentará GPU mas fará fallback para CPU se a DLL estiver ausente." -ForegroundColor Yellow
+    Write-Host "   Para habilitar aceleração CUDA 12, instale o CUDA Toolkit 12.x:" -ForegroundColor Yellow
+    Write-Host "   https://developer.nvidia.com/cuda-downloads" -ForegroundColor Cyan
+    Write-Host ""
+}
+
+# --- Passo 5: Pre-baixar o modelo Whisper ------------------------------------
 
 Write-Host ""
 Write-Host "[WhisperServer] Baixando modelo Whisper (pode demorar na primeira vez)..." -ForegroundColor Cyan
