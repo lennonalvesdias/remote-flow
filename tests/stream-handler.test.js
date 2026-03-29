@@ -1191,3 +1191,47 @@ describe('StreamHandler', () => {
     });
   });
 });
+
+// ─── convertMarkdownTables() ──────────────────────────────────────────────────
+
+describe('_internal.convertMarkdownTables()', () => {
+  it('retorna texto sem alteração quando não há tabela', () => {
+    const text = 'Olá mundo\nSegunda linha';
+    const { content, pending } = _internal.convertMarkdownTables(text);
+    expect(content).toBe(text);
+    expect(pending).toBe('');
+  });
+
+  it('converte tabela completa quando há conteúdo não-tabela após ela', () => {
+    const text = '| Nome | Idade |\n|------|-------|\n| Bob  | 30    |\n\nTexto após';
+    const { content, pending } = _internal.convertMarkdownTables(text);
+    expect(content).toContain('```');
+    expect(content).toContain('Nome');
+    expect(content).toContain('Bob');
+    expect(pending).toBe('');
+  });
+
+  it('retorna tabela como pending quando está no fim do chunk e isLastChunk=false', () => {
+    const text = '| Nome | Idade |\n|------|-------|\n| Bob  | 30    |';
+    const { content, pending } = _internal.convertMarkdownTables(text, false);
+    expect(pending).toContain('| Nome | Idade |');
+    expect(pending).toContain('| Bob  | 30    |');
+  });
+
+  it('força conversão da tabela no fim do chunk quando isLastChunk=true', () => {
+    const text = '| Nome | Idade |\n|------|-------|\n| Bob  | 30    |';
+    const { content, pending } = _internal.convertMarkdownTables(text, true);
+    expect(content).toContain('```');
+    expect(content).toContain('Bob');
+    expect(pending).toBe('');
+  });
+
+  it('mantém tabela sem dados como texto raw (header apenas)', () => {
+    const text = '| Nome | Idade |\n|------|-------|';
+    const { content, pending } = _internal.convertMarkdownTables(text, true);
+    expect(content).toContain('| Nome | Idade |');
+    expect(content).toContain('|------|-------|');
+    expect(content).not.toContain('```');
+    expect(pending).toBe('');
+  });
+});

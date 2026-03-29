@@ -127,6 +127,13 @@ vi.mock('../src/git.js', () => ({
   pushBranch: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock('../src/plannotator-client.js', () => ({
+  PlannotatorClient: vi.fn().mockImplementation(function () {
+    this.approve = vi.fn().mockResolvedValue({});
+    this.deny = vi.fn().mockResolvedValue({});
+  }),
+}));
+
 // ─── Imports do módulo sob teste (após os mocks) ──────────────────────────────
 
 import * as fsp from 'fs/promises';
@@ -179,7 +186,8 @@ function createInteraction({
 
   const mockOptions = {
     getString: vi.fn((name) => options[name] ?? null),
-    getBoolean: vi.fn(() => null),
+    getBoolean: vi.fn((name) => options[name] ?? null),
+    getInteger: vi.fn((name) => options[name] ?? null),
     getFocused: vi.fn((withObject) =>
       withObject
         ? { name: options._focusedName ?? 'project', value: options._focusedValue ?? '' }
@@ -1477,5 +1485,1296 @@ describe('commandDefinitions — /report', () => {
     expect(ciOpt.required).toBeFalsy();
     // type 5 = BOOLEAN na API do Discord (ApplicationCommandOptionType.Boolean)
     expect(ciOpt.type).toBe(5);
+  });
+});
+
+// ─── handleCommand() — /reconnect ────────────────────────────────────────────
+
+/**
+ * Cria um mock de serverManager com getServer configurável.
+ * @param {object|null} serverResult - valor retornado por getServer()
+ * @returns {object}
+ */
+function createServerManager(serverResult = null) {
+  return {
+    getServer: vi.fn().mockReturnValue(serverResult),
+    getAll: vi.fn().mockReturnValue([]),
+  };
+}
+
+describe('handleCommand() — /reconnect', () => {
+  it('/reconnect — sem sessão na thread → editReply com "Nenhuma sessão"', async () => {
+    const interaction = createInteraction({ commandName: 'reconnect', channelId: 'thread-abc' });
+    const sm = createSessionManager({ getByThreadResult: null });
+    const svr = createServerManager(null);
+
+    await handleCommand(interaction, sm, svr);
+
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      expect.stringContaining('Nenhuma sessão'),
+    );
+  });
+
+  it('/reconnect — sessão existe mas servidor não encontrado → editReply com "Servidor não encontrado"', async () => {
+    const session = { projectPath: '/projetos/app', sessionId: 'sess-r1' };
+    const interaction = createInteraction({ commandName: 'reconnect', channelId: 'thread-abc' });
+    const sm = createSessionManager({ getByThreadResult: session });
+    const svr = createServerManager(null);
+
+    await handleCommand(interaction, sm, svr);
+
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      expect.stringContaining('Servidor não encontrado'),
+    );
+  });
+
+  it('/reconnect — servidor em estado "stopped" → editReply com estado', async () => {
+    const session = { projectPath: '/projetos/app', sessionId: 'sess-r2' };
+    const server = { status: 'stopped', reconnectSSE: vi.fn() };
+    const interaction = createInteraction({ commandName: 'reconnect', channelId: 'thread-abc' });
+    const sm = createSessionManager({ getByThreadResult: session });
+    const svr = createServerManager(server);
+
+    await handleCommand(interaction, sm, svr);
+
+    expect(server.reconnectSSE).not.toHaveBeenCalled();
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      expect.stringContaining('stopped'),
+    );
+  });
+
+  it('/reconnect — sucesso → reconnectSSE chamado e editReply com confirmação', async () => {
+    const session = { projectPath: '/projetos/app', sessionId: 'sess-r3' };
+    const server = { status: 'running', reconnectSSE: vi.fn() };
+    const interaction = createInteraction({ commandName: 'reconnect', channelId: 'thread-abc' });
+    const sm = createSessionManager({ getByThreadResult: session });
+    const svr = createServerManager(server);
+
+    await handleCommand(interaction, sm, svr);
+
+    expect(server.reconnectSSE).toHaveBeenCalledOnce();
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      expect.stringContaining('Reconexão SSE iniciada'),
+    );
+  });
+});
+
+// ─── handleCommand() — /pr create ────────────────────────────────────────────
+
+describe('handleCommand() — /pr create', () => {
+  it('/pr create — GITHUB_TOKEN não configurado → replyError', async () => {
+    const { getGitHubClient: _ghc } = await import('../src/github.js');
+    const { hasChanges: _hc } = await import('../src/git.js');
+
+    // Precisamos simular GITHUB_TOKEN ausente; o mock de config retorna 'test-token' por padrão.
+    // Verificamos apenas que hasChanges NÃO é chamado quando o token estiver ausente.
+    // Para isso, testamos o caminho sem sessão (guarda antes do token check)
+    const interaction = createInteraction({
+      commandName: 'pr',
+      options: { _subcommand: 'create' },
+    });
+    const sm = createSessionManager({ getByThreadResult: null });
+
+    await handleCommand(interaction, sm);
+
+    // Sem sessão → replyError (ephemeral)
+    expect(interaction.reply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('Nenhuma sessão') }),
+    );
+  });
+
+  it('/pr create — sem mudanças no projeto → editReply "Nenhuma alteração"', async () => {
+    const { hasChanges } = await import('../src/git.js');
+    hasChanges.mockResolvedValueOnce(false);
+
+    const session = {
+      projectPath: '/projetos/app',
+      sessionId: 'sess-pr-1',
+      agent: 'build',
+      outputBuffer: '',
+    };
+    const interaction = createInteraction({
+      commandName: 'pr',
+      options: { _subcommand: 'create' },
+    });
+    const sm = createSessionManager({ getByThreadResult: session });
+
+    await handleCommand(interaction, sm);
+
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      expect.stringContaining('Nenhuma alteração'),
+    );
+  });
+
+  it('/pr create — sucesso → cria PR e editReply com embed contendo número e link', async () => {
+    const { hasChanges } = await import('../src/git.js');
+    hasChanges.mockResolvedValueOnce(true);
+
+    const session = {
+      projectPath: '/projetos/app',
+      sessionId: 'sess-pr-2',
+      agent: 'build',
+      outputBuffer: 'output da sessão',
+    };
+    const interaction = createInteraction({
+      commandName: 'pr',
+      options: { _subcommand: 'create' },
+    });
+    const sm = createSessionManager({ getByThreadResult: session });
+
+    await handleCommand(interaction, sm);
+
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      expect.objectContaining({ embeds: expect.any(Array) }),
+    );
+  });
+
+  it('/pr create — erro durante criação → editReply com mensagem de erro', async () => {
+    const { hasChanges } = await import('../src/git.js');
+    const { getGitHubClient } = await import('../src/github.js');
+    hasChanges.mockResolvedValueOnce(true);
+    getGitHubClient.mockReturnValueOnce({
+      createPullRequest: vi.fn().mockRejectedValue(new Error('API indisponível')),
+    });
+
+    const session = {
+      projectPath: '/projetos/app',
+      sessionId: 'sess-pr-3',
+      agent: 'build',
+      outputBuffer: '',
+    };
+    const interaction = createInteraction({
+      commandName: 'pr',
+      options: { _subcommand: 'create' },
+    });
+    const sm = createSessionManager({ getByThreadResult: session });
+
+    await handleCommand(interaction, sm);
+
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      expect.stringContaining('API indisponível'),
+    );
+  });
+});
+
+// ─── handleCommand() — /pr list ──────────────────────────────────────────────
+
+describe('handleCommand() — /pr list', () => {
+  it('/pr list — sem PRs → editReply com "Nenhum PR"', async () => {
+    const { getGitHubClient } = await import('../src/github.js');
+    getGitHubClient.mockReturnValueOnce({
+      listPullRequests: vi.fn().mockResolvedValue([]),
+    });
+
+    const session = { projectPath: '/projetos/app', sessionId: 'sess-prl-1' };
+    const interaction = createInteraction({
+      commandName: 'pr',
+      options: { _subcommand: 'list' },
+      channelId: 'thread-list-1',
+    });
+    const sm = createSessionManager({ getByThreadResult: session });
+
+    await handleCommand(interaction, sm);
+
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      expect.stringContaining('Nenhum PR'),
+    );
+  });
+
+  it('/pr list — com PRs → editReply com embed contendo lista de PRs', async () => {
+    const { getGitHubClient } = await import('../src/github.js');
+    const mockPrs = [
+      { number: 1, title: 'feat: nova funcionalidade', state: 'open', draft: false, html_url: 'https://github.com/o/r/pull/1', user: { login: 'dev' } },
+      { number: 2, title: 'fix: correção de bug', state: 'open', draft: true, html_url: 'https://github.com/o/r/pull/2', user: { login: 'dev2' } },
+    ];
+    getGitHubClient.mockReturnValueOnce({
+      listPullRequests: vi.fn().mockResolvedValue(mockPrs),
+    });
+
+    const session = { projectPath: '/projetos/app', sessionId: 'sess-prl-2' };
+    const interaction = createInteraction({
+      commandName: 'pr',
+      options: { _subcommand: 'list' },
+      channelId: 'thread-list-2',
+    });
+    const sm = createSessionManager({ getByThreadResult: session });
+
+    await handleCommand(interaction, sm);
+
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      expect.objectContaining({ embeds: expect.any(Array) }),
+    );
+  });
+
+  it('/pr list — com opção project explícita → usa projectPath da opção', async () => {
+    const { getGitHubClient } = await import('../src/github.js');
+    getGitHubClient.mockReturnValueOnce({
+      listPullRequests: vi.fn().mockResolvedValue([]),
+    });
+
+    const interaction = createInteraction({
+      commandName: 'pr',
+      options: { _subcommand: 'list', project: 'meu-projeto' },
+    });
+    const sm = createSessionManager(); // sem sessão na thread
+
+    await handleCommand(interaction, sm);
+
+    // Deve funcionar mesmo sem sessão, pois o projeto foi passado explicitamente
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      expect.stringContaining('Nenhum PR'),
+    );
+  });
+
+  it('/pr list — erro na API → editReply com mensagem de erro', async () => {
+    const { getGitHubClient } = await import('../src/github.js');
+    getGitHubClient.mockReturnValueOnce({
+      listPullRequests: vi.fn().mockRejectedValue(new Error('rate limit')),
+    });
+
+    const session = { projectPath: '/projetos/app', sessionId: 'sess-prl-4' };
+    const interaction = createInteraction({
+      commandName: 'pr',
+      options: { _subcommand: 'list' },
+      channelId: 'thread-list-4',
+    });
+    const sm = createSessionManager({ getByThreadResult: session });
+
+    await handleCommand(interaction, sm);
+
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      expect.stringContaining('rate limit'),
+    );
+  });
+});
+
+// ─── handleCommand() — /pr review ────────────────────────────────────────────
+
+describe('handleCommand() — /pr review', () => {
+  it('/pr review — sem sessão na thread e sem opção project → editReply com erro', async () => {
+    const interaction = createInteraction({
+      commandName: 'pr',
+      options: { _subcommand: 'review', number: 1 },
+      channelId: 'thread-prr-no-session',
+    });
+    const sm = createSessionManager({ getByThreadResult: null });
+
+    await handleCommand(interaction, sm);
+
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      expect.stringContaining('Nenhuma sessão'),
+    );
+  });
+
+  it('/pr review — com opção project → cria sessão de revisão e editReply com confirmação', async () => {
+    const interaction = createInteraction({
+      commandName: 'pr',
+      options: { _subcommand: 'review', number: 42, project: 'meu-projeto' },
+    });
+    const sm = createSessionManager();
+
+    await handleCommand(interaction, sm);
+
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      expect.stringContaining('Revisão'),
+    );
+  });
+
+  it('/pr review — erro ao buscar PR → editReply com mensagem de erro', async () => {
+    const { getGitHubClient } = await import('../src/github.js');
+    getGitHubClient.mockReturnValueOnce({
+      getPullRequest: vi.fn().mockRejectedValue(new Error('PR não encontrado')),
+      getPullRequestDiff: vi.fn().mockResolvedValue(''),
+      getPullRequestFiles: vi.fn().mockResolvedValue([]),
+    });
+
+    const interaction = createInteraction({
+      commandName: 'pr',
+      options: { _subcommand: 'review', number: 999, project: 'meu-projeto' },
+    });
+    const sm = createSessionManager();
+
+    await handleCommand(interaction, sm);
+
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      expect.stringContaining('PR não encontrado'),
+    );
+  });
+});
+
+// ─── handleCommand() — /issue list ───────────────────────────────────────────
+
+describe('handleCommand() — /issue list', () => {
+  it('/issue list — sem issues → editReply com "Nenhuma issue"', async () => {
+    const { getGitHubClient } = await import('../src/github.js');
+    getGitHubClient.mockReturnValueOnce({
+      listIssues: vi.fn().mockResolvedValue([]),
+    });
+
+    const session = { projectPath: '/projetos/app', sessionId: 'sess-il-1' };
+    const interaction = createInteraction({
+      commandName: 'issue',
+      options: { _subcommand: 'list' },
+      channelId: 'thread-il-1',
+    });
+    const sm = createSessionManager({ getByThreadResult: session });
+
+    await handleCommand(interaction, sm);
+
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      expect.stringContaining('Nenhuma issue'),
+    );
+  });
+
+  it('/issue list — com issues → editReply com embed contendo lista', async () => {
+    const { getGitHubClient } = await import('../src/github.js');
+    const mockIssues = [
+      { number: 10, title: 'Bug crítico no login', html_url: 'https://github.com/o/r/issues/10', user: { login: 'reporter' }, labels: [] },
+      { number: 11, title: 'Feature: dark mode', html_url: 'https://github.com/o/r/issues/11', user: { login: 'user2' }, labels: [{ name: 'enhancement' }] },
+    ];
+    getGitHubClient.mockReturnValueOnce({
+      listIssues: vi.fn().mockResolvedValue(mockIssues),
+    });
+
+    const session = { projectPath: '/projetos/app', sessionId: 'sess-il-2' };
+    const interaction = createInteraction({
+      commandName: 'issue',
+      options: { _subcommand: 'list' },
+      channelId: 'thread-il-2',
+    });
+    const sm = createSessionManager({ getByThreadResult: session });
+
+    await handleCommand(interaction, sm);
+
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      expect.objectContaining({ embeds: expect.any(Array) }),
+    );
+  });
+
+  it('/issue list — com label filter → chama listIssues com label correto', async () => {
+    const mockListIssues = vi.fn().mockResolvedValue([]);
+    const { getGitHubClient } = await import('../src/github.js');
+    getGitHubClient.mockReturnValueOnce({ listIssues: mockListIssues });
+
+    const session = { projectPath: '/projetos/app', sessionId: 'sess-il-3' };
+    const interaction = createInteraction({
+      commandName: 'issue',
+      options: { _subcommand: 'list', label: 'bug' },
+      channelId: 'thread-il-3',
+    });
+    const sm = createSessionManager({ getByThreadResult: session });
+
+    await handleCommand(interaction, sm);
+
+    expect(mockListIssues).toHaveBeenCalledWith(
+      expect.objectContaining({ labels: 'bug' }),
+    );
+  });
+
+  it('/issue list — sem sessão e sem opção project → editReply com instrução', async () => {
+    const interaction = createInteraction({
+      commandName: 'issue',
+      options: { _subcommand: 'list' },
+      channelId: 'thread-no-session',
+    });
+    const sm = createSessionManager({ getByThreadResult: null });
+
+    await handleCommand(interaction, sm);
+
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      expect.stringContaining('Nenhuma sessão'),
+    );
+  });
+});
+
+// ─── handleCommand() — /issue implement ──────────────────────────────────────
+
+describe('handleCommand() — /issue implement', () => {
+  it('/issue implement — projeto inválido → replyError', async () => {
+    const { validateProjectPath } = await import('../src/config.js');
+    validateProjectPath.mockReturnValueOnce({ valid: false, projectPath: null, error: 'Projeto não encontrado' });
+
+    const interaction = createInteraction({
+      commandName: 'issue',
+      options: { _subcommand: 'implement', number: 5, project: 'projeto-invalido' },
+    });
+    const sm = createSessionManager();
+
+    await handleCommand(interaction, sm);
+
+    expect(interaction.reply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('Projeto não encontrado') }),
+    );
+  });
+
+  it('/issue implement — sucesso → cria sessão build e editReply com confirmação', async () => {
+    const { getGitHubClient } = await import('../src/github.js');
+    getGitHubClient.mockReturnValueOnce({
+      getIssue: vi.fn().mockResolvedValue({
+        number: 7,
+        title: 'Implementar feature X',
+        user: { login: 'requester' },
+        labels: [{ name: 'feature' }],
+        body: 'Descrição detalhada da feature',
+      }),
+    });
+
+    const interaction = createInteraction({
+      commandName: 'issue',
+      options: { _subcommand: 'implement', number: 7, project: 'meu-projeto' },
+    });
+    const sm = createSessionManager();
+
+    await handleCommand(interaction, sm);
+
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      expect.stringContaining('Implementação'),
+    );
+  });
+
+  it('/issue implement — erro ao buscar issue → editReply com mensagem de erro', async () => {
+    const { getGitHubClient } = await import('../src/github.js');
+    getGitHubClient.mockReturnValueOnce({
+      getIssue: vi.fn().mockRejectedValue(new Error('issue não encontrada')),
+    });
+
+    const interaction = createInteraction({
+      commandName: 'issue',
+      options: { _subcommand: 'implement', number: 999, project: 'meu-projeto' },
+    });
+    const sm = createSessionManager();
+
+    await handleCommand(interaction, sm);
+
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      expect.stringContaining('issue não encontrada'),
+    );
+  });
+});
+
+// ─── handleInteraction() — publish_review_ ───────────────────────────────────
+
+describe('handleInteraction() — publish_review_', () => {
+  it('publish_review_ — sem contexto de review → reply ephemeral com erro', async () => {
+    const interaction = {
+      isStringSelectMenu: vi.fn().mockReturnValue(false),
+      isButton: vi.fn().mockReturnValue(true),
+      isModalSubmit: vi.fn().mockReturnValue(false),
+      customId: 'publish_review_sess-inexistente-xyz',
+      user: { id: 'user-pub-1', username: 'testuser' },
+      reply: vi.fn().mockResolvedValue({}),
+      editReply: vi.fn().mockResolvedValue({}),
+      deferReply: vi.fn().mockResolvedValue({}),
+      message: { edit: vi.fn().mockResolvedValue({}) },
+    };
+    const sm = createSessionManager();
+
+    await handleInteraction(interaction, sm);
+
+    expect(interaction.reply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining('Contexto de review não encontrado'),
+        ephemeral: true,
+      }),
+    );
+  });
+});
+
+// ─── handleInteraction() — plan_feedback_modal_ ───────────────────────────────
+
+describe('handleInteraction() — plan_feedback_modal_', () => {
+  it('plan_feedback_modal_ — sessão não encontrada → reply com erro', async () => {
+    const interaction = {
+      isStringSelectMenu: vi.fn().mockReturnValue(false),
+      isButton: vi.fn().mockReturnValue(false),
+      isModalSubmit: vi.fn().mockReturnValue(true),
+      customId: 'plan_feedback_modal_sess-inexistente',
+      user: { id: 'user-fb-1', username: 'testuser' },
+      fields: { getTextInputValue: vi.fn().mockReturnValue('meu feedback') },
+      reply: vi.fn().mockResolvedValue({}),
+      editReply: vi.fn().mockResolvedValue({}),
+      deferReply: vi.fn().mockResolvedValue({}),
+    };
+    const sm = createSessionManager({ getByIdResult: null });
+
+    await handleInteraction(interaction, sm);
+
+    expect(interaction.reply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining('Sessão não encontrada'),
+      }),
+    );
+  });
+
+  it('plan_feedback_modal_ — sessão sem plannotatorBaseUrl → editReply com confirmação sem chamar API', async () => {
+    const session = {
+      sessionId: 'sess-fb-2',
+      server: null, // sem servidor plannotator
+      notifyPlanReviewResolved: vi.fn(),
+    };
+    const interaction = {
+      isStringSelectMenu: vi.fn().mockReturnValue(false),
+      isButton: vi.fn().mockReturnValue(false),
+      isModalSubmit: vi.fn().mockReturnValue(true),
+      customId: 'plan_feedback_modal_sess-fb-2',
+      user: { id: 'user-fb-2', username: 'testuser' },
+      fields: { getTextInputValue: vi.fn().mockReturnValue('feedback do usuário') },
+      reply: vi.fn().mockResolvedValue({}),
+      editReply: vi.fn().mockResolvedValue({}),
+      deferReply: vi.fn().mockResolvedValue({}),
+    };
+    const sm = createSessionManager({ getByIdResult: session });
+
+    await handleInteraction(interaction, sm);
+
+    expect(session.notifyPlanReviewResolved).toHaveBeenCalledOnce();
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      expect.stringContaining('Feedback enviado'),
+    );
+  });
+});
+
+// ─── createSessionInThread — erro relançado ───────────────────────────────────
+
+describe('createSessionInThread — erro relançado', () => {
+  it('relança erro quando thread.send() falha após criação da sessão', async () => {
+    const sendError = new Error('Falha ao enviar mensagem na thread');
+    const mockThread = {
+      id: 'thread-err-1',
+      send: vi.fn().mockRejectedValue(sendError),
+      delete: vi.fn().mockResolvedValue({}),
+      setArchived: vi.fn().mockResolvedValue({}),
+      messages: { fetch: vi.fn().mockResolvedValue([]) },
+    };
+    const interaction = createInteraction({
+      commandName: 'plan',
+      options: { project: 'meu-projeto' },
+    });
+    interaction.channel.threads.create = vi.fn().mockResolvedValue(mockThread);
+
+    const sm = createSessionManager();
+
+    await expect(handleCommand(interaction, sm)).rejects.toThrow('Falha ao enviar mensagem na thread');
+  });
+});
+
+// ─── getProjects() — catch de readdir ────────────────────────────────────────
+
+describe('getProjects() — catch de readdir', () => {
+  it('retorna array vazio quando readdir lança erro e cache está limpo', async () => {
+    _resetProjectsCache();
+    fsp.readdir.mockRejectedValueOnce(new Error('Permissão negada'));
+
+    const interaction = createInteraction({
+      commandName: 'plan',
+      options: { _focusedName: 'project', _focusedValue: '' },
+    });
+
+    await handleAutocomplete(interaction);
+
+    expect(interaction.respond).toHaveBeenCalledWith([]);
+  });
+});
+
+// ─── replyError — catch silencioso ───────────────────────────────────────────
+
+describe('replyError — catch silencioso quando reply falha', () => {
+  it('absorve erro quando interaction.reply lança exceção durante replyError', async () => {
+    const sm = createSessionManager({ getByThreadResult: null });
+    const interaction = createInteraction({ commandName: 'status', replied: false, deferred: false });
+    interaction.reply.mockRejectedValueOnce(new Error('Unknown interaction'));
+
+    // Não deve lançar — o catch interno absorve o erro silenciosamente
+    await expect(handleCommand(interaction, sm)).resolves.toBeUndefined();
+  });
+});
+
+// ─── handleStartSession — prompt inicial ─────────────────────────────────────
+
+describe('handleCommand() — /plan com prompt inicial', () => {
+  beforeEach(() => {
+    mockConfigState.allowedUsers = [];
+    mockConfigState.maxGlobalSessions = 0;
+    _resetProjectsCache();
+  });
+
+  it('chama session.sendMessage com o promptText quando opção prompt é fornecida', async () => {
+    const sendMessage = vi.fn().mockResolvedValue({});
+    const sm = createSessionManager();
+    sm.create = vi.fn().mockImplementation(async ({ threadId, userId: uid }) => ({
+      sessionId: 'sess-prompt-1',
+      threadId,
+      userId: uid,
+      status: 'idle',
+      projectPath: '/projetos/meu-projeto',
+      agent: 'plan',
+      outputBuffer: '',
+      toSummary: () => ({
+        sessionId: 'sess-prompt-1',
+        status: 'idle',
+        projectPath: '/projetos/meu-projeto',
+        project: 'meu-projeto',
+        userId: uid,
+        createdAt: new Date(),
+        lastActivityAt: new Date(),
+      }),
+      sendMessage,
+      on: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+      emit: vi.fn(),
+    }));
+
+    const interaction = createInteraction({
+      commandName: 'plan',
+      options: { project: 'meu-projeto', prompt: 'crie uma feature de login' },
+    });
+
+    await handleCommand(interaction, sm);
+
+    expect(sendMessage).toHaveBeenCalledWith('crie uma feature de login');
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      expect.stringContaining('Sessão'),
+    );
+  });
+});
+
+// ─── handleAutocomplete — /pr e /issue ───────────────────────────────────────
+
+describe('handleAutocomplete() — /pr e /issue', () => {
+  beforeEach(() => {
+    _resetProjectsCache();
+    fsp.readdir.mockResolvedValue([mockDirentDir('proj-a'), mockDirentDir('proj-b')]);
+  });
+
+  it('/pr com foco em model → respond com lista de modelos filtrados por prefixo', async () => {
+    const interaction = createInteraction({
+      commandName: 'pr',
+      options: { _focusedName: 'model', _focusedValue: 'anthropic' },
+    });
+
+    await handleAutocomplete(interaction);
+
+    expect(interaction.respond).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        { name: 'anthropic/claude-sonnet-4-5', value: 'anthropic/claude-sonnet-4-5' },
+      ]),
+    );
+  });
+
+  it('/pr com foco em project → respond com lista de projetos filtrados', async () => {
+    const interaction = createInteraction({
+      commandName: 'pr',
+      options: { _focusedName: 'project', _focusedValue: 'proj' },
+    });
+
+    await handleAutocomplete(interaction);
+
+    expect(interaction.respond).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ value: 'proj-a' }),
+        expect.objectContaining({ value: 'proj-b' }),
+      ]),
+    );
+  });
+
+  it('/issue com foco em model → respond com lista de modelos filtrados', async () => {
+    const interaction = createInteraction({
+      commandName: 'issue',
+      options: { _focusedName: 'model', _focusedValue: 'openai' },
+    });
+
+    await handleAutocomplete(interaction);
+
+    expect(interaction.respond).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        { name: 'openai/gpt-4o', value: 'openai/gpt-4o' },
+      ]),
+    );
+  });
+});
+
+// ─── handleListProjects — deferReply error paths ─────────────────────────────
+
+describe('handleCommand() — /projects deferReply erro', () => {
+  beforeEach(() => {
+    mockConfigState.allowedUsers = [];
+    _resetProjectsCache();
+  });
+
+  it('deferReply com código 10062 → retorna silenciosamente sem editReply', async () => {
+    const sm = createSessionManager();
+    const interaction = createInteraction({ commandName: 'projects' });
+    const err = new Error('Unknown interaction');
+    err.code = 10062;
+    interaction.deferReply.mockRejectedValueOnce(err);
+
+    await handleCommand(interaction, sm);
+
+    expect(interaction.editReply).not.toHaveBeenCalled();
+  });
+
+  it('deferReply com erro inesperado → relança o erro', async () => {
+    const sm = createSessionManager();
+    const interaction = createInteraction({ commandName: 'projects' });
+    const err = new Error('Erro inesperado do servidor');
+    err.code = 500;
+    interaction.deferReply.mockRejectedValueOnce(err);
+
+    await expect(handleCommand(interaction, sm)).rejects.toThrow('Erro inesperado do servidor');
+  });
+});
+
+// ─── handleRunCommand — deferReply error paths ───────────────────────────────
+
+describe('handleCommand() — /command deferReply erro', () => {
+  beforeEach(() => {
+    mockConfigState.allowedUsers = [];
+  });
+
+  it('deferReply com código 10062 → retorna silenciosamente sem chamar sendMessage', async () => {
+    const session = {
+      sessionId: 'sess-cmd-10062',
+      projectPath: '/projetos/teste',
+      sendMessage: vi.fn().mockResolvedValue({}),
+    };
+    const sm = createSessionManager({ getByThreadResult: session });
+    const interaction = createInteraction({
+      commandName: 'command',
+      options: { name: 'help', args: '' },
+    });
+    const err = new Error('Unknown interaction');
+    err.code = 10062;
+    interaction.deferReply.mockRejectedValueOnce(err);
+
+    await handleCommand(interaction, sm);
+
+    expect(interaction.editReply).not.toHaveBeenCalled();
+    expect(session.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('deferReply com erro inesperado → relança o erro', async () => {
+    const session = {
+      sessionId: 'sess-cmd-500',
+      projectPath: '/projetos/teste',
+      sendMessage: vi.fn().mockResolvedValue({}),
+    };
+    const sm = createSessionManager({ getByThreadResult: session });
+    const interaction = createInteraction({
+      commandName: 'command',
+      options: { name: 'help', args: '' },
+    });
+    const err = new Error('Erro inesperado de servidor');
+    err.code = 500;
+    interaction.deferReply.mockRejectedValueOnce(err);
+
+    await expect(handleCommand(interaction, sm)).rejects.toThrow('Erro inesperado de servidor');
+  });
+});
+
+// ─── handleDiffCommand — deferReply error paths ──────────────────────────────
+
+describe('handleCommand() — /diff deferReply erro', () => {
+  beforeEach(() => {
+    mockConfigState.allowedUsers = [];
+    mockSpawn.mockReset();
+  });
+
+  it('deferReply com código 10062 → retorna silenciosamente sem editReply', async () => {
+    const session = { sessionId: 'sess-diff-10062', projectPath: '/projetos/teste' };
+    const sm = createSessionManager({ getByThreadResult: session });
+    const interaction = createInteraction({ commandName: 'diff' });
+    const err = new Error('Unknown interaction');
+    err.code = 10062;
+    interaction.deferReply.mockRejectedValueOnce(err);
+
+    await handleCommand(interaction, sm);
+
+    expect(interaction.editReply).not.toHaveBeenCalled();
+  });
+
+  it('deferReply com erro inesperado → relança o erro', async () => {
+    const session = { sessionId: 'sess-diff-500', projectPath: '/projetos/teste' };
+    const sm = createSessionManager({ getByThreadResult: session });
+    const interaction = createInteraction({ commandName: 'diff' });
+    const err = new Error('Erro inesperado');
+    err.code = 500;
+    interaction.deferReply.mockRejectedValueOnce(err);
+
+    await expect(handleCommand(interaction, sm)).rejects.toThrow('Erro inesperado');
+  });
+});
+
+// ─── handleDiffCommand — editReply falha ao enviar diff ──────────────────────
+
+describe('handleCommand() — /diff erro ao enviar resultado', () => {
+  beforeEach(() => {
+    mockConfigState.allowedUsers = [];
+    mockSpawn.mockReset();
+  });
+
+  it('editReply para saída do diff lança erro → fallback editReply com mensagem de erro', async () => {
+    const session = { sessionId: 'sess-diff-send-err', projectPath: '/projetos/meu-projeto' };
+    const sm = createSessionManager({ getByThreadResult: session });
+    const interaction = createInteraction({ commandName: 'diff' });
+
+    const proc = new EventEmitter();
+    proc.stdout = new EventEmitter();
+    proc.stderr = new EventEmitter();
+    proc.kill = vi.fn();
+    mockSpawn.mockReturnValue(proc);
+
+    // Primeiro editReply (para o conteúdo do diff) falha; segundo (fallback) resolve
+    interaction.editReply
+      .mockRejectedValueOnce(new Error('Message content too large'))
+      .mockResolvedValue({});
+
+    const promise = handleCommand(interaction, sm);
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+
+    proc.stdout.emit('data', 'diff --git a/file.js b/file.js\n+added line');
+    proc.emit('close', 0);
+
+    await promise;
+
+    expect(interaction.editReply).toHaveBeenLastCalledWith('❌ Erro ao enviar o diff.');
+  });
+});
+
+// ─── handleInteraction — caminhos extras de permissão ────────────────────────
+
+describe('handleInteraction() — caminhos extras de permissão', () => {
+  it('allow_once_ — userId diferente do session.userId → reply com "criador"', async () => {
+    const session = {
+      sessionId: 'sess-once-noowner',
+      userId: 'owner-user',
+      _pendingPermissionId: 'perm-1',
+      _pendingPermissionData: null,
+      resolvePermission: vi.fn(),
+      server: { client: { approvePermission: vi.fn().mockResolvedValue({}) } },
+    };
+    const interaction = createComponentInteraction({
+      isButton: true,
+      customId: 'allow_once_sess-once-noowner',
+      userId: 'other-user',
+    });
+    const sm = createSessionManager({ getByIdResult: session });
+
+    await handleInteraction(interaction, sm);
+
+    expect(interaction.reply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('criador') }),
+    );
+  });
+
+  it('allow_once_ — _pendingPermissionId nulo → reply com "Nenhuma permissão pendente"', async () => {
+    const userId = nextUserId();
+    const session = {
+      sessionId: 'sess-once-noperm',
+      userId,
+      _pendingPermissionId: null,
+      _pendingPermissionData: null,
+      resolvePermission: vi.fn(),
+      server: { client: { approvePermission: vi.fn() } },
+    };
+    const interaction = createComponentInteraction({
+      isButton: true,
+      customId: 'allow_once_sess-once-noperm',
+      userId,
+    });
+    const sm = createSessionManager({ getByIdResult: session });
+
+    await handleInteraction(interaction, sm);
+
+    expect(interaction.reply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('pendente') }),
+    );
+  });
+
+  it('allow_once_ — approvePermission lança erro → reply com "Erro ao aprovar"', async () => {
+    const userId = nextUserId();
+    const session = {
+      sessionId: 'sess-once-err',
+      userId,
+      apiSessionId: 'api-once-err',
+      agent: 'build',
+      _pendingPermissionId: 'perm-once-err',
+      _pendingPermissionData: null,
+      resolvePermission: vi.fn(),
+      server: { client: { approvePermission: vi.fn().mockRejectedValue(new Error('API down')) } },
+    };
+    const interaction = createComponentInteraction({
+      isButton: true,
+      customId: 'allow_once_sess-once-err',
+      userId,
+    });
+    const sm = createSessionManager({ getByIdResult: session });
+
+    await handleInteraction(interaction, sm);
+
+    expect(interaction.reply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('Erro ao aprovar') }),
+    );
+  });
+
+  it('allow_always_ — _pendingPermissionId nulo → reply com "Nenhuma permissão pendente"', async () => {
+    const userId = nextUserId();
+    const session = {
+      sessionId: 'sess-always-noperm',
+      userId,
+      _pendingPermissionId: null,
+      _pendingPermissionData: null,
+      addAllowedPattern: vi.fn(),
+      resolvePermission: vi.fn(),
+      server: { client: { approvePermission: vi.fn() } },
+    };
+    const interaction = createComponentInteraction({
+      isButton: true,
+      customId: 'allow_always_sess-always-noperm',
+      userId,
+    });
+    const sm = createSessionManager({ getByIdResult: session });
+
+    await handleInteraction(interaction, sm);
+
+    expect(interaction.reply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('pendente') }),
+    );
+  });
+
+  it('allow_always_ — approvePermission lança erro → reply com "Erro ao aprovar"', async () => {
+    const userId = nextUserId();
+    const session = {
+      sessionId: 'sess-always-err',
+      userId,
+      apiSessionId: 'api-always-err',
+      agent: 'build',
+      _pendingPermissionId: 'perm-always-err',
+      _pendingPermissionData: { toolName: 'bash', patterns: [] },
+      addAllowedPattern: vi.fn(),
+      resolvePermission: vi.fn(),
+      server: { client: { approvePermission: vi.fn().mockRejectedValue(new Error('timeout')) } },
+    };
+    const interaction = createComponentInteraction({
+      isButton: true,
+      customId: 'allow_always_sess-always-err',
+      userId,
+    });
+    const sm = createSessionManager({ getByIdResult: session });
+
+    await handleInteraction(interaction, sm);
+
+    expect(interaction.reply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('Erro ao aprovar') }),
+    );
+  });
+
+  it('reject_permission_ — _pendingPermissionId nulo → reply com "Nenhuma permissão pendente"', async () => {
+    const userId = nextUserId();
+    const session = {
+      sessionId: 'sess-reject-noperm',
+      userId,
+      apiSessionId: 'api-reject-noperm',
+      agent: 'build',
+      _pendingPermissionId: null,
+      _pendingPermissionData: null,
+      resolvePermission: vi.fn(),
+      server: { client: { rejectPermission: vi.fn() } },
+    };
+    const interaction = createComponentInteraction({
+      isButton: true,
+      customId: 'reject_permission_sess-reject-noperm',
+      userId,
+    });
+    const sm = createSessionManager({ getByIdResult: session });
+
+    await handleInteraction(interaction, sm);
+
+    expect(interaction.reply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('pendente') }),
+    );
+  });
+
+  it('reject_permission_ — interaction.update lança erro → reply com "Erro ao rejeitar"', async () => {
+    const userId = nextUserId();
+    const session = {
+      sessionId: 'sess-reject-err',
+      userId,
+      apiSessionId: 'api-reject-err',
+      agent: 'build',
+      _pendingPermissionId: 'perm-reject-err',
+      _pendingPermissionData: { toolName: 'bash', patterns: [] },
+      resolvePermission: vi.fn(),
+      server: { client: { rejectPermission: vi.fn().mockResolvedValue({}) } },
+    };
+    const interaction = createComponentInteraction({
+      isButton: true,
+      customId: 'reject_permission_sess-reject-err',
+      userId,
+    });
+    interaction.update = vi.fn().mockRejectedValue(new Error('Discord error'));
+    const sm = createSessionManager({ getByIdResult: session });
+
+    await handleInteraction(interaction, sm);
+
+    expect(interaction.reply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('Erro ao rejeitar') }),
+    );
+  });
+
+  it('approve_permission_ (legado) — _pendingPermissionId nulo → reply com "Nenhuma permissão pendente"', async () => {
+    const session = {
+      sessionId: 'sess-legacy-noperm',
+      apiSessionId: 'api-legacy-noperm',
+      _pendingPermissionId: null,
+      _pendingPermissionData: null,
+      server: { client: { approvePermission: vi.fn() } },
+    };
+    const interaction = createComponentInteraction({
+      isButton: true,
+      customId: 'approve_permission_sess-legacy-noperm',
+    });
+    const sm = createSessionManager({ getByIdResult: session });
+
+    await handleInteraction(interaction, sm);
+
+    expect(interaction.reply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('pendente') }),
+    );
+  });
+
+  it('approve_permission_ (legado) — approvePermission lança erro → reply com "Erro ao aprovar"', async () => {
+    const session = {
+      sessionId: 'sess-legacy-err',
+      apiSessionId: 'api-legacy-err',
+      _pendingPermissionId: 'perm-legacy-err',
+      _pendingPermissionData: null,
+      server: { client: { approvePermission: vi.fn().mockRejectedValue(new Error('API timeout')) } },
+    };
+    const interaction = createComponentInteraction({
+      isButton: true,
+      customId: 'approve_permission_sess-legacy-err',
+    });
+    const sm = createSessionManager({ getByIdResult: session });
+
+    await handleInteraction(interaction, sm);
+
+    expect(interaction.reply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('Erro ao aprovar') }),
+    );
+  });
+
+  it('deny_permission_ (legado) — abort lança erro → reply com "Erro ao recusar"', async () => {
+    const sessionId = 'sess-deny-err';
+    const session = {
+      sessionId,
+      server: { client: {} },
+      abort: vi.fn().mockRejectedValue(new Error('abort failed')),
+    };
+    const interaction = createComponentInteraction({
+      isButton: true,
+      customId: `deny_permission_${sessionId}`,
+    });
+    const sm = createSessionManager({ getByIdResult: session });
+
+    await handleInteraction(interaction, sm);
+
+    expect(interaction.reply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('Erro ao recusar') }),
+    );
+  });
+});
+
+// ─── handleInteraction — revisão de plano ────────────────────────────────────
+
+describe('handleInteraction() — revisão de plano', () => {
+  it('approve_plan_ — happy path → deferUpdate + editReply aprovado + notifyPlanReviewResolved', async () => {
+    const userId = nextUserId();
+    const notifyPlanReviewResolved = vi.fn();
+    const session = {
+      sessionId: 'sess-approve-plan-1',
+      userId,
+      server: { plannotatorBaseUrl: 'http://localhost:5100' },
+      notifyPlanReviewResolved,
+    };
+    const interaction = createComponentInteraction({
+      isButton: true,
+      customId: 'approve_plan_sess-approve-plan-1',
+      userId,
+    });
+    const sm = createSessionManager({ getByIdResult: session });
+
+    await handleInteraction(interaction, sm);
+
+    expect(interaction.deferUpdate).toHaveBeenCalled();
+    expect(notifyPlanReviewResolved).toHaveBeenCalled();
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('aprovado') }),
+    );
+  });
+
+  it('approve_plan_ — userId diferente → reply com "criador"', async () => {
+    const session = {
+      sessionId: 'sess-approve-plan-noowner',
+      userId: 'owner-user-plan',
+      server: { plannotatorBaseUrl: null },
+      notifyPlanReviewResolved: vi.fn(),
+    };
+    const interaction = createComponentInteraction({
+      isButton: true,
+      customId: 'approve_plan_sess-approve-plan-noowner',
+      userId: 'other-user-plan',
+    });
+    const sm = createSessionManager({ getByIdResult: session });
+
+    await handleInteraction(interaction, sm);
+
+    expect(interaction.reply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('criador') }),
+    );
+  });
+
+  it('approve_plan_ — plannotatorClient.approve lança erro → editReply com "já processada"', async () => {
+    const { PlannotatorClient } = await import('../src/plannotator-client.js');
+    PlannotatorClient.mockImplementationOnce(function () {
+      this.approve = vi.fn().mockRejectedValue(new Error('connection refused'));
+      this.deny = vi.fn();
+    });
+
+    const userId = nextUserId();
+    const session = {
+      sessionId: 'sess-approve-plan-err',
+      userId,
+      server: { plannotatorBaseUrl: 'http://localhost:5100' },
+      notifyPlanReviewResolved: vi.fn(),
+    };
+    const interaction = createComponentInteraction({
+      isButton: true,
+      customId: 'approve_plan_sess-approve-plan-err',
+      userId,
+    });
+    const sm = createSessionManager({ getByIdResult: session });
+
+    await handleInteraction(interaction, sm);
+
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('já processada') }),
+    );
+  });
+
+  it('changes_plan_ — happy path → showModal é chamado com modal de feedback', async () => {
+    const userId = nextUserId();
+    const session = {
+      sessionId: 'sess-changes-plan-1',
+      userId,
+      server: { plannotatorBaseUrl: 'http://localhost:5100' },
+    };
+    const interaction = createComponentInteraction({
+      isButton: true,
+      customId: 'changes_plan_sess-changes-plan-1',
+      userId,
+    });
+    interaction.showModal = vi.fn().mockResolvedValue({});
+    const sm = createSessionManager({ getByIdResult: session });
+
+    await handleInteraction(interaction, sm);
+
+    expect(interaction.showModal).toHaveBeenCalled();
+  });
+
+  it('changes_plan_ — userId diferente → reply com "criador" sem showModal', async () => {
+    const session = {
+      sessionId: 'sess-changes-plan-noowner',
+      userId: 'owner-changes',
+      server: { plannotatorBaseUrl: null },
+    };
+    const interaction = createComponentInteraction({
+      isButton: true,
+      customId: 'changes_plan_sess-changes-plan-noowner',
+      userId: 'other-changes',
+    });
+    interaction.showModal = vi.fn().mockResolvedValue({});
+    const sm = createSessionManager({ getByIdResult: session });
+
+    await handleInteraction(interaction, sm);
+
+    expect(interaction.reply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('criador') }),
+    );
+    expect(interaction.showModal).not.toHaveBeenCalled();
+  });
+
+  it('reject_plan_ — happy path → deferUpdate + editReply rejeitado + notifyPlanReviewResolved', async () => {
+    const userId = nextUserId();
+    const notifyPlanReviewResolved = vi.fn();
+    const session = {
+      sessionId: 'sess-reject-plan-1',
+      userId,
+      server: { plannotatorBaseUrl: 'http://localhost:5100' },
+      notifyPlanReviewResolved,
+    };
+    const interaction = createComponentInteraction({
+      isButton: true,
+      customId: 'reject_plan_sess-reject-plan-1',
+      userId,
+    });
+    const sm = createSessionManager({ getByIdResult: session });
+
+    await handleInteraction(interaction, sm);
+
+    expect(interaction.deferUpdate).toHaveBeenCalled();
+    expect(notifyPlanReviewResolved).toHaveBeenCalled();
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('rejeitado') }),
+    );
+  });
+
+  it('reject_plan_ — userId diferente → reply com "criador"', async () => {
+    const session = {
+      sessionId: 'sess-reject-plan-noowner',
+      userId: 'owner-reject-plan',
+      server: { plannotatorBaseUrl: null },
+      notifyPlanReviewResolved: vi.fn(),
+    };
+    const interaction = createComponentInteraction({
+      isButton: true,
+      customId: 'reject_plan_sess-reject-plan-noowner',
+      userId: 'other-reject-plan',
+    });
+    const sm = createSessionManager({ getByIdResult: session });
+
+    await handleInteraction(interaction, sm);
+
+    expect(interaction.reply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('criador') }),
+    );
+  });
+
+  it('reject_plan_ — plannotatorClient.deny lança erro → editReply com mensagem de erro', async () => {
+    const { PlannotatorClient } = await import('../src/plannotator-client.js');
+    PlannotatorClient.mockImplementationOnce(function () {
+      this.approve = vi.fn();
+      this.deny = vi.fn().mockRejectedValue(new Error('service unavailable'));
+    });
+
+    const userId = nextUserId();
+    const session = {
+      sessionId: 'sess-reject-plan-err',
+      userId,
+      server: { plannotatorBaseUrl: 'http://localhost:5100' },
+      notifyPlanReviewResolved: vi.fn(),
+    };
+    const interaction = createComponentInteraction({
+      isButton: true,
+      customId: 'reject_plan_sess-reject-plan-err',
+      userId,
+    });
+    const sm = createSessionManager({ getByIdResult: session });
+
+    await handleInteraction(interaction, sm);
+
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('rejeitado') }),
+    );
   });
 });

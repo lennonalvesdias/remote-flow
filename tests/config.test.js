@@ -324,4 +324,32 @@ describe('constantes de configuração — valores padrão e env', () => {
     expect(AUDIT_LOG_PATH).toContain('.remote-flow');
     expect(AUDIT_LOG_PATH).toContain('audit.ndjson');
   });
+
+  // ─── VOICE_CDN_DOWNLOAD_TIMEOUT_MS ─────────────────────────────────────────
+
+  it('VOICE_CDN_DOWNLOAD_TIMEOUT_MS usa 30000 como padrão', async () => {
+    vi.stubEnv('VOICE_CDN_DOWNLOAD_TIMEOUT_MS', '');
+    const { VOICE_CDN_DOWNLOAD_TIMEOUT_MS } = await import('../src/config.js');
+    expect(VOICE_CDN_DOWNLOAD_TIMEOUT_MS).toBe(30000);
+  });
+
+  it('VOICE_CDN_DOWNLOAD_TIMEOUT_MS lê da variável de ambiente', async () => {
+    vi.stubEnv('VOICE_CDN_DOWNLOAD_TIMEOUT_MS', '60000');
+    const { VOICE_CDN_DOWNLOAD_TIMEOUT_MS } = await import('../src/config.js');
+    expect(VOICE_CDN_DOWNLOAD_TIMEOUT_MS).toBe(60000);
+  });
+
+  // ─── WHISPER_TRANSCRIPTION_TIMEOUT_MS ──────────────────────────────────────
+
+  it('WHISPER_TRANSCRIPTION_TIMEOUT_MS usa 120000 como padrão', async () => {
+    vi.stubEnv('WHISPER_TRANSCRIPTION_TIMEOUT_MS', '');
+    const { WHISPER_TRANSCRIPTION_TIMEOUT_MS } = await import('../src/config.js');
+    expect(WHISPER_TRANSCRIPTION_TIMEOUT_MS).toBe(120000);
+  });
+
+  it('WHISPER_TRANSCRIPTION_TIMEOUT_MS lê da variável de ambiente', async () => {
+    vi.stubEnv('WHISPER_TRANSCRIPTION_TIMEOUT_MS', '180000');
+    const { WHISPER_TRANSCRIPTION_TIMEOUT_MS } = await import('../src/config.js');
+    expect(WHISPER_TRANSCRIPTION_TIMEOUT_MS).toBe(180000);
+  });
 });

@@ -3,6 +3,14 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// ─── Mock logger.js ──────────────────────────────────────────────────────────
+
+const mockReadRecentLogEntries = vi.hoisted(() => vi.fn().mockResolvedValue([]));
+
+vi.mock('../src/logger.js', () => ({
+  readRecentLogEntries: mockReadRecentLogEntries,
+}));
+
 // ─── Mock discord.js ─────────────────────────────────────────────────────────
 
 vi.mock('discord.js', () => {
@@ -29,7 +37,7 @@ vi.mock('discord.js', () => {
 
 // ─── Imports após configuração dos mocks ─────────────────────────────────────
 
-import { analyzeOutput, captureThreadMessages, formatReportText, buildReportEmbed } from '../src/reporter.js';
+import { analyzeOutput, captureThreadMessages, formatReportText, buildReportEmbed, readRecentLogs, analyzeLogEntries } from '../src/reporter.js';
 
 // ─── Factories ────────────────────────────────────────────────────────────────
 
@@ -258,6 +266,51 @@ describe('formatReportText()', () => {
     const text = formatReportText(data);
     expect(text).not.toContain('HISTÓRICO DA THREAD');
   });
+
+  it('inclui bloco de problemas detectados quando analysis.errors não está vazio', () => {
+    const data = makeReportData({
+      analysis: {
+        errors: [
+          {
+            id: 'runtime_error',
+            category: 'Erro em Tempo de Execução',
+            match: 'TypeError: Cannot read',
+            context: 'TypeError: Cannot read properties',
+            suggestion: 'Verifique o stack trace.',
+          },
+        ],
+        suggestedActions: ['Verifique o stack trace.'],
+        summary: '1 problema(s) detectado(s) no output da sessão.',
+      },
+    });
+    const text = formatReportText(data);
+    expect(text).toContain('Problemas Detectados:');
+    expect(text).toContain('[Erro em Tempo de Execução]');
+    expect(text).toContain('Trecho: TypeError: Cannot read');
+    expect(text).toContain('Sugestão: Verifique o stack trace.');
+  });
+
+  it('omite linha "Trecho:" quando err.match está vazio', () => {
+    const data = makeReportData({
+      analysis: {
+        errors: [
+          {
+            id: 'empty_output',
+            category: 'Output Vazio',
+            match: '',
+            context: '',
+            suggestion: 'A sessão finalizou sem output.',
+          },
+        ],
+        suggestedActions: [],
+        summary: '1 problema(s) detectado(s) no output da sessão.',
+      },
+    });
+    const text = formatReportText(data);
+    expect(text).toContain('Problemas Detectados:');
+    expect(text).toContain('[Output Vazio]');
+    expect(text).not.toContain('Trecho:');
+  });
 });
 
 // ─── buildReportEmbed ─────────────────────────────────────────────────────────
@@ -377,5 +430,174 @@ describe('captureThreadMessages()', () => {
     };
     await captureThreadMessages(mockChannel);
     expect(mockChannel.messages.fetch).toHaveBeenCalledWith({ limit: 100 });
+  });
+});
+
+// ─── readRecentLogs() ─────────────────────────────────────────────────────────
+
+describe('readRecentLogs()', () => {
+  beforeEach(() => mockReadRecentLogEntries.mockResolvedValue([]));
+
+  it('delega para readRecentLogEntries com limite padrão de 200', async () => {
+    await readRecentLogs();
+    expect(mockReadRecentLogEntries).toHaveBeenCalledWith(200);
+  });
+
+  it('repassa limite personalizado para readRecentLogEntries', async () => {
+    await readRecentLogs(50);
+    expect(mockReadRecentLogEntries).toHaveBeenCalledWith(50);
+  });
+});
+
+// ─── analyzeLogEntries() ──────────────────────────────────────────────────────
+
+describe('analyzeLogEntries()', () => {
+  it('retorna estrutura vazia quando entries é null', () => {
+    const result = analyzeLogEntries(null);
+    expect(result.errors).toEqual([]);
+    expect(result.warnings).toEqual([]);
+    expect(result.summary).toBe('Nenhuma entrada de log disponível.');
+  });
+
+  it('retorna estrutura vazia quando entries é array vazio', () => {
+    const result = analyzeLogEntries([]);
+    expect(result.errors).toEqual([]);
+    expect(result.warnings).toEqual([]);
+    expect(result.summary).toBe('Nenhuma entrada de log disponível.');
+  });
+
+  it('filtra erros e avisos corretamente', () => {
+    const entries = [
+      { ts: '2026-01-01T00:00:00Z', level: 'error', component: 'Bot', message: 'Falha crítica' },
+      { ts: '2026-01-01T00:01:00Z', level: 'warn',  component: 'Bot', message: 'Aviso menor' },
+      { ts: '2026-01-01T00:02:00Z', level: 'info',  component: 'Bot', message: 'Info ignorada' },
+    ];
+    const result = analyzeLogEntries(entries);
+    expect(result.errors).toHaveLength(1);
+    expect(result.warnings).toHaveLength(1);
+    expect(result.errors[0].message).toBe('Falha crítica');
+    expect(result.warnings[0].message).toBe('Aviso menor');
+  });
+
+  it('retorna summary com contagem quando há erros e avisos', () => {
+    const entries = [
+      { ts: '2026-01-01T00:00:00Z', level: 'error', component: 'Bot', message: 'Err1' },
+      { ts: '2026-01-01T00:01:00Z', level: 'warn',  component: 'Bot', message: 'Warn1' },
+    ];
+    const { summary } = analyzeLogEntries(entries);
+    expect(summary).toContain('1 erro(s)');
+    expect(summary).toContain('1 aviso(s)');
+  });
+
+  it('retorna summary "sem problemas" quando entries contém apenas info', () => {
+    const entries = [
+      { ts: '2026-01-01T00:00:00Z', level: 'info', component: 'Bot', message: 'Tudo bem' },
+    ];
+    const { summary } = analyzeLogEntries(entries);
+    expect(summary).toBe('Nenhum erro ou aviso encontrado nos logs recentes do bot.');
+  });
+});
+
+// ─── formatReportText() — com logEntries ──────────────────────────────────────
+
+describe('formatReportText() — com logEntries', () => {
+  const baseData = {
+    reportId: 'RPT-001',
+    timestamp: new Date('2026-01-01T00:00:00Z'),
+    reporter: { displayName: 'Testador', username: 'testador', id: '123' },
+    description: 'Descrição do problema',
+    severity: 'high',
+    session: null,
+    threadMessages: [],
+    sessionOutput: '',
+    analysis: { summary: 'Sem erros.', errors: [] },
+  };
+
+  it('inclui seção de logs quando logEntries tem erros', () => {
+    const data = {
+      ...baseData,
+      logEntries: [
+        { ts: '2026-01-01T00:00:00Z', level: 'error', component: 'Bot', message: 'Crash' },
+      ],
+    };
+    const text = formatReportText(data);
+    expect(text).toContain('LOGS RECENTES DO BOT (ERROS/AVISOS)');
+    expect(text).toContain('[ERROR]');
+    expect(text).toContain('Crash');
+  });
+
+  it('inclui seção de logs quando logEntries tem avisos', () => {
+    const data = {
+      ...baseData,
+      logEntries: [
+        { ts: '2026-01-01T00:00:00Z', level: 'warn', component: 'Bot', message: 'Aviso importante' },
+      ],
+    };
+    const text = formatReportText(data);
+    expect(text).toContain('LOGS RECENTES DO BOT (ERROS/AVISOS)');
+    expect(text).toContain('[WARN]');
+  });
+
+  it('omite seção de logs quando logEntries contém apenas entradas info', () => {
+    const data = {
+      ...baseData,
+      logEntries: [
+        { ts: '2026-01-01T00:00:00Z', level: 'info', component: 'Bot', message: 'Info ok' },
+      ],
+    };
+    const text = formatReportText(data);
+    expect(text).not.toContain('LOGS RECENTES DO BOT (ERROS/AVISOS)');
+  });
+});
+
+// ─── buildReportEmbed() — com logEntries ──────────────────────────────────────
+
+describe('buildReportEmbed() — com logEntries', () => {
+  const baseData = {
+    reportId: 'RPT-002',
+    timestamp: new Date('2026-01-01T00:00:00Z'),
+    reporter: { displayName: 'Testador', username: 'testador', id: '123' },
+    description: 'Descrição',
+    severity: 'medium',
+    session: null,
+    analysis: { summary: 'Sem erros.', errors: [] },
+  };
+
+  it('adiciona campo "Logs Recentes do Bot" quando logEntries tem erros', () => {
+    const data = {
+      ...baseData,
+      logEntries: [
+        { ts: '2026-01-01T00:00:00Z', level: 'error', component: 'Bot', message: 'Erro grave' },
+      ],
+    };
+    const embed = buildReportEmbed(data);
+    const logField = embed.data.fields.find((f) => f.name === '📋 Logs Recentes do Bot');
+    expect(logField).toBeDefined();
+    expect(logField.value).toContain('ERROR');
+  });
+
+  it('adiciona campo "Logs Recentes do Bot" quando logEntries tem avisos', () => {
+    const data = {
+      ...baseData,
+      logEntries: [
+        { ts: '2026-01-01T00:00:00Z', level: 'warn', component: 'Bot', message: 'Aviso' },
+      ],
+    };
+    const embed = buildReportEmbed(data);
+    const logField = embed.data.fields.find((f) => f.name === '📋 Logs Recentes do Bot');
+    expect(logField).toBeDefined();
+    expect(logField.value).toContain('WARN');
+  });
+
+  it('não adiciona campo "Logs Recentes do Bot" quando logEntries contém apenas info', () => {
+    const data = {
+      ...baseData,
+      logEntries: [
+        { ts: '2026-01-01T00:00:00Z', level: 'info', component: 'Bot', message: 'Tudo ok' },
+      ],
+    };
+    const embed = buildReportEmbed(data);
+    const logField = embed.data.fields.find((f) => f.name === '📋 Logs Recentes do Bot');
+    expect(logField).toBeUndefined();
   });
 });

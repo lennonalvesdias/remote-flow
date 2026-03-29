@@ -6,6 +6,61 @@ O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.
 
 ---
 
+## [1.8.0] — 2026-03-29
+
+### 🧪 Tests
+- Criada suite completa de testes de integração em `tests/integration/` com 18 arquivos cobrindo todos os fluxos principais do projeto
+- Adicionados helpers reutilizáveis em `tests/helpers/` (discord-mocks, process-mocks, network-mocks, fs-mocks, fixtures, timer-utils) para padronizar mocks de fronteiras externas
+- Fluxos cobertos: ciclo de vida de sessão, streaming para Discord, comandos slash, roteamento de mensagens, permissões, detecção de planos, transcrição de voz, integração GitHub, geração de relatórios, health check, persistência, auditoria, logging, inicialização, encerramento gracioso, recuperação de erros, rate limiting e operações concorrentes
+- Adicionados scripts `test:unit` e `test:integration` ao `package.json` para execução separada por categoria
+
+---
+
+## [1.7.2] — 2026-03-28
+
+### 🐛 Fixed
+
+- **Fallback automático de CUDA para CPU no Whisper Server** — quando `cublas64_12.dll` está ausente (CUDA 11.x incompatível com CTranslate2 v4), o servidor agora detecta a falha no startup e recarrega o modelo em CPU automaticamente, evitando travamentos de 120s nas transcrições subsequentes
+
+### ✨ Adicionado
+
+- **Validação de CUDA com inferência de teste** — ao iniciar com `DEVICE=cuda`, o servidor executa uma inferência de teste (0.2s de silêncio via `numpy`) imediatamente após carregar o modelo; qualquer falha de CUDA é capturada antes de aceitar requisições
+- **Log persistente do bot Node.js** — novo módulo `src/console-logger.js`; intercepta `console.log/warn/error/info` e `process.stderr` e persiste toda saída em `logs/bot-YYYY-MM-DD.log`; arquivos com mais de 24h são removidos automaticamente no startup
+- **Log persistente do Whisper Server** — `whisper_server/server.py` agora escreve logs em `logs/whisper-YYYY-MM-DD.log` via `logging.FileHandler`; arquivos com mais de 24h são removidos automaticamente no startup
+
+---
+
+## [1.7.1] — 2026-03-28
+
+### 🐛 Fixed
+
+- **Timeout na transcrição de voz** — corrigido `AbortSignal.timeout` de 30s para 120s na chamada ao Whisper Server (`src/whisper-client.js`); o cold-start de CUDA (compilação de kernels na primeira inferência real) pode levar 15–60s, causando timeout antes da resposta
+- **Timeout no download da CDN do Discord** — aumentado de 15s para 30s (`src/index.js`) para tolerar variações de latência da CDN em arquivos maiores
+- **MIME type ausente no Blob** — `FormData.append` agora passa `{ type: 'audio/ogg' }` ao construir o `Blob`, garantindo o `Content-Type` correto no campo `audio` do multipart
+
+### 🔧 Changed
+
+- Novos timeouts são configuráveis via variáveis de ambiente: `VOICE_CDN_DOWNLOAD_TIMEOUT_MS` (padrão: 30000) e `WHISPER_TRANSCRIPTION_TIMEOUT_MS` (padrão: 120000)
+
+---
+
+## [1.7.0] — 2026-03-28
+
+### ✨ Adicionado
+
+- **Transcrição de mensagens de voz** — o bot detecta automaticamente mensagens de voz do Discord (`.ogg` / Opus com `duration_secs`) e arquivos de áudio e transcreve o conteúdo antes de encaminhar ao OpenCode via `session.queueMessage()`
+- Novo módulo `src/whisper-client.js` — cliente HTTP para o Whisper Server local; usa `fetch` e `FormData` nativos do Node 20 (sem dependências npm adicionais)
+- Novo módulo `src/transcription-provider.js` — abstração multi-provider que suporta três backends: `local` (Whisper Server Python), `openai` (API oficial) e `groq` (API compatível com OpenAI); seleção via `TRANSCRIPTION_PROVIDER`
+- Microserviço Python `whisper_server/server.py` — Flask + waitress + faster-whisper (CTranslate2); expõe `POST /transcribe` e `GET /health`; guard de 25 MB e timeout de 120s
+- Script `whisper_server/setup.ps1` — setup automatizado do venv Python e download do modelo
+- Script npm `whisper` para iniciar o servidor Python local
+- Novas variáveis de ambiente: `TRANSCRIPTION_PROVIDER`, `WHISPER_URL`, `TRANSCRIPTION_API_KEY`, `TRANSCRIPTION_API_MODEL`, `VOICE_MAX_DURATION_SECS`, `VOICE_SHOW_TRANSCRIPT`
+- Health check de transcrição no startup do bot — ativa/desativa a feature automaticamente conforme disponibilidade do provider
+- Transcrição exibida como reply na thread antes de encaminhar ao OpenCode (configurável via `VOICE_SHOW_TRANSCRIPT`)
+- Auditoria de mensagens de voz via `audit('message.voice', ...)` com duração, comprimento do texto e provider
+
+---
+
 ## [1.6.2] — 2026-03-28
 
 ### 🐛 Fixed

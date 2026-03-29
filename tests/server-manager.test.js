@@ -446,6 +446,43 @@ describe('OpenCodeServer', () => {
       await expect(server.awaitReady()).rejects.toThrow(/falhou após/)
     })
   })
+
+  // ─── plannotatorBaseUrl ──────────────────────────────────────────────────────
+
+  describe('plannotatorBaseUrl', () => {
+    it('retorna URL HTTP com a porta plannotator configurada', () => {
+      const srv = new OpenCodeServer('/proj', 4100, null, 5100)
+      expect(srv.plannotatorBaseUrl).toBe('http://localhost:5100')
+    })
+  })
+
+  // ─── reconnectSSE() ──────────────────────────────────────────────────────────
+
+  describe('reconnectSSE()', () => {
+    it('lança erro quando servidor está parado', () => {
+      server.status = 'stopped'
+
+      expect(() => server.reconnectSSE()).toThrow('Servidor está parado')
+    })
+
+    it('retorna imediatamente sem alterar estado quando _reconnecting já é true', () => {
+      server.status = 'ready'
+      server._reconnecting = true
+
+      expect(() => server.reconnectSSE()).not.toThrow()
+      expect(server._reconnecting).toBe(true)
+    })
+
+    it('define _reconnecting = true e aborta sseAbortController se presente', () => {
+      server.status = 'ready'
+      server.sseAbortController = { abort: vi.fn() }
+
+      server.reconnectSSE()
+
+      expect(server._reconnecting).toBe(true)
+      expect(server.sseAbortController.abort).toHaveBeenCalled()
+    })
+  })
 })
 
 // ─── ServerManager ────────────────────────────────────────────────────────────
@@ -769,6 +806,30 @@ describe('ServerManager', () => {
 
       expect(p1).not.toBe(p2)
       expect(sm._usedPorts.size).toBe(2)
+    })
+  })
+
+  // ─── _allocatePlannotatorPort() ──────────────────────────────────────────────
+
+  describe('_allocatePlannotatorPort()', () => {
+    it('serializa chamadas concorrentes e retorna portas plannotator distintas', async () => {
+      const [p1, p2] = await Promise.all([sm._allocatePlannotatorPort(), sm._allocatePlannotatorPort()])
+
+      expect(p1).not.toBe(p2)
+      expect(sm._usedPlannotatorPorts.size).toBe(2)
+    })
+  })
+
+  // ─── _doAllocatePlannotatorPort() ────────────────────────────────────────────
+
+  describe('_doAllocatePlannotatorPort()', () => {
+    it('lança erro quando todas as portas plannotator no intervalo estão ocupadas', async () => {
+      const base = sm._nextPlannotatorPort
+      for (let i = 0; i < 200; i++) {
+        sm._usedPlannotatorPorts.add(base + i)
+      }
+
+      await expect(sm._doAllocatePlannotatorPort()).rejects.toThrow(/Não foi possível alocar porta plannotator/)
     })
   })
 })

@@ -1,5 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
+
+// ─── Mock persistence.js ──────────────────────────────────────────────────────
+
+const mockSaveSession = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const mockRemoveSession = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+
+vi.mock('../src/persistence.js', () => ({
+  saveSession: mockSaveSession,
+  removeSession: mockRemoveSession,
+}));
+
+// ─── Imports após mocks ───────────────────────────────────────────────────────
+
 import { isWaitingForInput, OpenCodeSession, SessionManager } from '../src/session-manager.js';
 
 describe('isWaitingForInput', () => {
@@ -1105,5 +1118,118 @@ describe('SessionManager', () => {
     const drainSpy = vi.spyOn(sess, '_drainMessageQueue').mockResolvedValue()
     sess._handleIdleTransition()
     expect(drainSpy).toHaveBeenCalled()
+  })
+
+  // ─── _checkTimeouts() — fila presa ───────────────────────────────────────────
+
+  it('_checkTimeouts() registra warn para sessão running com fila presa há mais de 60s', async () => {
+    const sess = await sm.create({ projectPath: '/projetos/stuck', threadId: 'thread-stuck', userId: 'user-stuck', agent: 'coder' })
+    sess.status = 'running'
+    sess._messageQueue = ['msg1']
+    sess.lastActivityAt = new Date(Date.now() - 61_000)
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    await sm._checkTimeouts()
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[SessionManager]'),
+      expect.any(String), expect.any(String), expect.any(Number), expect.any(Number)
+    )
+    warnSpy.mockRestore()
+  })
+
+  // ─── _expireSession() — erros ─────────────────────────────────────────────────
+
+  it('_expireSession() registra erro quando close() rejeita mas continua', async () => {
+    const sess = await sm.create({ projectPath: '/projetos/expire-close', threadId: 'thread-ec', userId: 'user-ec', agent: 'coder' })
+    vi.spyOn(sess, 'close').mockRejectedValue(new Error('Falha no close'))
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await sm._expireSession(sess)
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[SessionManager] ⚠️ Erro ao encerrar sessão expirada %s:',
+      sess.sessionId,
+      'Falha no close'
+    )
+    errorSpy.mockRestore()
+  })
+
+  it('_expireSession() registra erro quando removeSession() rejeita', async () => {
+    const sess = await sm.create({ projectPath: '/projetos/expire-rm', threadId: 'thread-er', userId: 'user-er', agent: 'coder' })
+    mockRemoveSession.mockRejectedValueOnce(new Error('DB indisponível'))
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await sm._expireSession(sess)
+    await Promise.resolve()
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[SessionManager] Erro ao remover sessão expirada da persistência:',
+      expect.objectContaining({ message: 'DB indisponível' })
+    )
+    errorSpy.mockRestore()
+  })
+
+  // ─── notifyPlanReviewResolved() ──────────────────────────────────────────────
+
+  it('notifyPlanReviewResolved() emite evento plan-review-resolved na sessão', async () => {
+    const sess = await sm.create({ projectPath: '/projetos/notify-plan', threadId: 'thread-np', userId: 'user-np', agent: 'coder' })
+    const handler = vi.fn()
+    sess.on('plan-review-resolved', handler)
+
+    sess.notifyPlanReviewResolved()
+
+    expect(handler).toHaveBeenCalled()
+  })
+
+  // ─── _handleIdleTransition() — erro no drain waiting_input ───────────────────
+
+  it('_handleIdleTransition() loga erro quando _drainMessageQueue rejeita em waiting_input', async () => {
+    const sess = await sm.create({ projectPath: '/projetos/drain-err', threadId: 'thread-derr', userId: 'user-derr', agent: 'coder' })
+    sess.status = 'waiting_input'
+    vi.spyOn(sess, '_drainMessageQueue').mockRejectedValue(new Error('falha de drenagem'))
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    sess._handleIdleTransition()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Erro ao drenar'),
+      expect.any(String), expect.any(String), expect.any(Number), 'falha de drenagem',
+    )
+    errorSpy.mockRestore()
+  })
+
+  // ─── create() — saveSession rejeita ──────────────────────────────────────────
+
+  it('create() loga erro quando saveSession rejeita', async () => {
+    mockSaveSession.mockRejectedValueOnce(new Error('DB indisponível'))
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await sm.create({ projectPath: '/projetos/save-err', threadId: 'thread-se', userId: 'user-se', agent: 'coder' })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[SessionManager] Erro ao persistir sessão:',
+      expect.any(Error),
+    )
+    errorSpy.mockRestore()
+  })
+
+  // ─── destroy() — removeSession rejeita ───────────────────────────────────────
+
+  it('destroy() loga erro quando removeSession rejeita', async () => {
+    const sess = await sm.create({ projectPath: '/projetos/destroy-err', threadId: 'thread-de', userId: 'user-de', agent: 'coder' })
+    mockRemoveSession.mockRejectedValueOnce(new Error('disco cheio'))
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await sm.destroy(sess.sessionId)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[SessionManager] Erro ao remover sessão persistida:',
+      expect.any(Error),
+    )
+    errorSpy.mockRestore()
   })
 })

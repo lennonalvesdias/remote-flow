@@ -9,9 +9,12 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "test": "vitest",
+    "test:unit": "vitest run --exclude 'tests/integration/**'",
+    "test:integration": "vitest run tests/integration",
     "test:ci": "vitest run",
     "install-service": "powershell -ExecutionPolicy Bypass -File scripts/install-service.ps1",
-    "kill-port": "powershell -ExecutionPolicy Bypass -File scripts/kill-port.ps1"
+    "kill-port": "powershell -ExecutionPolicy Bypass -File scripts/kill-port.ps1",
+    "whisper": ".venv-whisper\\Scripts\\python whisper_server/server.py"
   },
   "dependencies": {
     "discord.js": "^14.18.0",

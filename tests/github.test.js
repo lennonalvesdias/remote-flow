@@ -22,6 +22,7 @@ const mockOctokit = vi.hoisted(() => ({
     issues: {
       get: vi.fn(),
       listForRepo: vi.fn(),
+      create: vi.fn(),
     },
   },
 }));
@@ -572,5 +573,77 @@ describe('GitHubClient.listIssues', () => {
     expect(mockOctokit.rest.issues.listForRepo).toHaveBeenCalledWith(
       expect.objectContaining({ sort: 'updated', direction: 'desc' }),
     );
+  });
+});
+
+// ─── GitHubClient — caminhos de erro restantes ───────────────────────────────
+
+describe('GitHubClient — caminhos de erro restantes', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('listPullRequests() lança RequestError encapsulado com mensagem amigável', async () => {
+    mockOctokit.rest.pulls.list.mockRejectedValueOnce(new RequestError('Forbidden', 403));
+    const client = createClient();
+
+    await expect(client.listPullRequests({ owner: 'a', repo: 'b' })).rejects.toThrow('Sem permissão');
+  });
+
+  it('getPullRequestDiff() lança RequestError encapsulado quando API falha', async () => {
+    mockOctokit.rest.pulls.get.mockRejectedValueOnce(new RequestError('Not Found', 404));
+    const client = createClient();
+
+    await expect(client.getPullRequestDiff({ owner: 'a', repo: 'b', number: 1 })).rejects.toThrow('não encontrado');
+  });
+
+  it('getPullRequestFiles() lança RequestError encapsulado quando API falha', async () => {
+    mockOctokit.rest.pulls.listFiles.mockRejectedValueOnce(new RequestError('Not Found', 404));
+    const client = createClient();
+
+    await expect(client.getPullRequestFiles({ owner: 'a', repo: 'b', number: 1 })).rejects.toThrow('não encontrado');
+  });
+
+  it('createReview() lança RequestError encapsulado quando dados são inválidos', async () => {
+    mockOctokit.rest.pulls.createReview.mockRejectedValueOnce(new RequestError('Unprocessable Entity', 422));
+    const client = createClient();
+
+    await expect(
+      client.createReview({ owner: 'a', repo: 'b', number: 1, commitId: 'abc', body: '', event: 'COMMENT', comments: [] }),
+    ).rejects.toThrow('inválidos');
+  });
+
+  it('createIssue() cria issue com sucesso e retorna dados da issue criada', async () => {
+    mockOctokit.rest.issues.create.mockResolvedValueOnce({ data: { number: 5, title: 'Bug reportado' } });
+    const client = createClient();
+
+    const result = await client.createIssue({ owner: 'a', repo: 'b', title: 'Bug reportado' });
+
+    expect(result.number).toBe(5);
+    expect(mockOctokit.rest.issues.create).toHaveBeenCalledWith(
+      expect.objectContaining({ owner: 'a', repo: 'b', title: 'Bug reportado' }),
+    );
+  });
+
+  it('createIssue() lança RequestError encapsulado com contexto "criar issue"', async () => {
+    mockOctokit.rest.issues.create.mockRejectedValueOnce(new RequestError('Not Found', 404));
+    const client = createClient();
+
+    await expect(client.createIssue({ owner: 'a', repo: 'b', title: 'Bug' })).rejects.toThrow('criar issue');
+  });
+
+  it('listIssues() lança RequestError encapsulado com contexto "listar issues"', async () => {
+    mockOctokit.rest.issues.listForRepo.mockRejectedValueOnce(new RequestError('Forbidden', 403));
+    const client = createClient();
+
+    await expect(client.listIssues({ owner: 'a', repo: 'b' })).rejects.toThrow('listar issues');
+  });
+
+  it('_wrapError() propaga o Error original quando não é RequestError', async () => {
+    const originalError = new Error('network failure');
+    mockOctokit.rest.pulls.list.mockRejectedValueOnce(originalError);
+    const client = createClient();
+
+    await expect(client.listPullRequests({ owner: 'a', repo: 'b' })).rejects.toBe(originalError);
   });
 });

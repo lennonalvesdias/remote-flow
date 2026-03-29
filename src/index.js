@@ -1,6 +1,9 @@
 // src/index.js
 // Entry point — inicializa o bot Discord e conecta tudo
 
+import { initConsoleLogger } from './console-logger.js';
+initConsoleLogger(); // deve ser chamado antes de qualquer outro import
+
 import 'dotenv/config';
 import {
   Client,
@@ -15,12 +18,14 @@ import { SessionManager } from './session-manager.js';
 import { ServerManager } from './server-manager.js';
 import { handleCommand, handleInteraction, handleAutocomplete, commandDefinitions } from './commands.js';
 import { formatAge, debug } from './utils.js';
-import { ALLOWED_USERS, ALLOW_SHARED_SESSIONS, CHANNEL_FETCH_TIMEOUT_MS, SHUTDOWN_TIMEOUT_MS } from './config.js';
+import { ALLOWED_USERS, ALLOW_SHARED_SESSIONS, CHANNEL_FETCH_TIMEOUT_MS, SHUTDOWN_TIMEOUT_MS, VOICE_MAX_DURATION_SECS, VOICE_SHOW_TRANSCRIPT, VOICE_CDN_DOWNLOAD_TIMEOUT_MS } from './config.js';
 import { startHealthServer } from './health.js';
 import { loadSessions, removeSession } from './persistence.js';
 import { initAudit, audit } from './audit.js';
 import { initLogger, logError, logWarn } from './logger.js';
 import { loadModels } from './model-loader.js';
+import { provider as transcriptionProvider } from './transcription-provider.js';
+import { getVoiceAttachment } from './voice-utils.js';
 
 // ─── Validação de configuração ────────────────────────────────────────────────
 
@@ -46,6 +51,19 @@ const client = new Client({
   ],
   partials: [Partials.Channel, Partials.Message],
 });
+
+let transcriptionAvailable = false;
+let _lastTranscriptionHealthCheck = 0;
+const TRANSCRIPTION_HEALTH_TTL_MS = 60_000; // reavalia provider a cada 60s
+
+/** Verifica (ou usa cache) se o provider de transcrição está disponível. */
+async function isTranscriptionAvailable() {
+  if (Date.now() - _lastTranscriptionHealthCheck > TRANSCRIPTION_HEALTH_TTL_MS) {
+    transcriptionAvailable = await transcriptionProvider.checkHealth();
+    _lastTranscriptionHealthCheck = Date.now();
+  }
+  return transcriptionAvailable;
+}
 
 // ─── Registro de slash commands ───────────────────────────────────────────────
 
@@ -106,6 +124,19 @@ client.once('clientReady', async (c) => {
   await initAudit();
   await initLogger();
   await loadModels();
+  // Verifica disponibilidade do provider de transcrição de voz
+  transcriptionAvailable = await transcriptionProvider.checkHealth();
+  _lastTranscriptionHealthCheck = Date.now();
+  if (transcriptionAvailable) {
+    console.log(`✅ Transcrição de voz habilitada (provider: ${transcriptionProvider.name})`);
+  } else {
+    console.warn(`⚠️  Transcrição de voz indisponível (provider: ${transcriptionProvider.name})`);
+    if (transcriptionProvider.name === 'local') {
+      console.warn('   Inicie com: .venv-whisper\\Scripts\\activate && python whisper_server/server.py');
+    } else {
+      console.warn('   Verifique se TRANSCRIPTION_API_KEY está configurada corretamente.');
+    }
+  }
   await registerCommands();
   startHealthServer({ sessionManager, serverManager, startedAt: Date.now() });
 });
@@ -167,6 +198,99 @@ client.on('messageCreate', async (message) => {
     debug('Bot', '🚫 Usuário %s tentou interagir com sessão de %s', message.author.id, session.userId);
     return;
   }
+
+  // ─── Mensagens de voz ─────────────────────────────────────────────────────
+  const voiceAttachment = getVoiceAttachment(message);
+
+  if (voiceAttachment) {
+    // Ignora silenciosamente se transcrição não estiver disponível
+    if (!(await isTranscriptionAvailable())) return;
+
+    // Passthrough deve estar ativo para encaminhar ao OpenCode
+    if (!session.passthroughEnabled) {
+      debug('Bot', '⏸️ Passthrough desativado — mensagem de voz ignorada na thread %s', message.channel.id);
+      return;
+    }
+
+    // Valida duração máxima
+    const duration = voiceAttachment.duration ?? 0;
+    if (duration > VOICE_MAX_DURATION_SECS) {
+      await message.reply(`❌ Mensagem de voz muito longa (${Math.round(duration)}s). Limite: ${VOICE_MAX_DURATION_SECS}s.`).catch(() => {});
+      return;
+    }
+
+    // Valida tamanho máximo antes de baixar (Discord expõe .size em bytes)
+    const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // 25 MB
+    if (voiceAttachment.size > MAX_AUDIO_BYTES) {
+      await message.reply(
+        `❌ Arquivo de áudio muito grande (${(voiceAttachment.size / 1024 / 1024).toFixed(1)} MB). Limite: 25 MB.`
+      ).catch(() => {});
+      return;
+    }
+
+    // Reação visual imediata
+    try { await message.react('🎙️'); } catch { /* ignora */ }
+
+    try {
+      // Baixa o áudio da CDN do Discord
+      const audioResponse = await fetch(voiceAttachment.url, { signal: AbortSignal.timeout(VOICE_CDN_DOWNLOAD_TIMEOUT_MS) });
+      if (!audioResponse.ok) throw new Error(`Falha ao baixar áudio: HTTP ${audioResponse.status}`);
+      const audioBuffer = Buffer.from(await audioResponse.arrayBuffer());
+
+      // Transcreve via provider configurado
+      const filename = voiceAttachment.name || 'voice.ogg';
+      const { text, duration: transcribedDuration } = await transcriptionProvider.transcribe(audioBuffer, filename);
+
+      if (!text || !text.trim()) {
+        await message.reactions.cache.get('🎙️')?.remove().catch(() => {});
+        await message.react('❓').catch(() => {});
+        await message.reply('❓ Não foi possível identificar fala no áudio. Tente enviar como texto.').catch(() => {});
+        return;
+      }
+
+      const trimmedText = text.trim();
+
+      // Exibe transcrição na thread (se habilitado)
+      if (VOICE_SHOW_TRANSCRIPT) {
+        const preview = trimmedText.length > 500 ? trimmedText.slice(0, 497) + '...' : trimmedText;
+        await message.reply(`> 🎙️ *"${preview}"*`).catch(() => {});
+      }
+
+      // Encaminha para a sessão OpenCode
+      let queueResult;
+      try {
+        queueResult = await session.queueMessage(trimmedText);
+      } catch (queueErr) {
+        debug('index', '❌ Erro ao enfileirar mensagem de voz:', queueErr.message);
+        await message.reply('⚠️ O processo OpenCode não está ativo nesta sessão.').catch(() => {});
+        return;
+      }
+
+      // Feedback final
+      await message.reactions.cache.get('🎙️')?.remove().catch(() => {});
+      await message.react('✅').catch(() => {});
+
+      if (queueResult.queued) {
+        await message.reply(`📮 Transcrição enfileirada (posição ${queueResult.position}).`).catch(() => {});
+      }
+
+      await audit(
+        'message.voice',
+        { duration: transcribedDuration ?? duration, textLength: trimmedText.length, provider: transcriptionProvider.name },
+        message.author.id,
+        session.sessionId
+      );
+
+    } catch (err) {
+      console.error('[index] ❌ Erro ao processar mensagem de voz:', err.message);
+      await message.reactions.cache.get('🎙️')?.remove().catch(() => {});
+      await message.react('❌').catch(() => {});
+      await message.reply('❌ Não foi possível transcrever o áudio. Tente enviar como texto.').catch(() => {});
+    }
+
+    return; // não processar como mensagem de texto
+  }
+  // ─── Fim mensagens de voz ─────────────────────────────────────────────────
 
   // Não aceita input enquanto está processando (exceto comandos especiais)
   const text = message.content.trim();

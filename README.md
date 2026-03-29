@@ -17,22 +17,26 @@ Já sentiu que as suas melhores ideias surgem quando você está longe da sua m�
 
 ## 📚 Documentação
 
-- [INSTALL.md](./INSTALL.md)  
+- [docs/INSTALL.md](./docs/INSTALL.md)  
   Passo a passo completo de instalação, setup no Discord e configuração de variáveis de ambiente.
 
-- [FLOW.md](./FLOW.md)  
+- [docs/FLOW.md](./docs/FLOW.md)  
   Tutorial de uso no dia a dia, fluxo operacional e lista completa de slash commands disponíveis.
 
-- [GITHUB.md](./GITHUB.md)  
+- [docs/GITHUB.md](./docs/GITHUB.md)  
   Guia das integrações com GitHub: PRs, issues, review assistido por agente e requisitos de autenticação.
+
+- [docs/WHISPER.md](./docs/WHISPER.md)  
+  Transcrição de mensagens de voz via Whisper local ou APIs externas (OpenAI, Groq) — setup, configuração de providers e troubleshooting.
 
 ---
 
 ## 🧭 Comece por aqui
 
-1. Leia [INSTALL.md](./INSTALL.md)
-2. Siga com [FLOW.md](./FLOW.md)
-3. Habilite integrações avançadas em [GITHUB.md](./GITHUB.md)
+1. Leia [INSTALL.md](./docs/INSTALL.md)
+2. Siga com [FLOW.md](./docs/FLOW.md)
+3. Habilite integrações avançadas em [GITHUB.md](./docs/GITHUB.md)
+4. Para transcrição de voz, consulte [docs/WHISPER.md](./docs/WHISPER.md)
 
 ---
 

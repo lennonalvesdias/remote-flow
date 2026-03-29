@@ -33,3 +33,10 @@ nul
 
 # node-pty native bindings (rebuilt locally)
 build/Release/
+
+# Whisper Server — ambiente virtual Python e cache
+.venv-whisper/
+whisper_server/__pycache__/
+
+# Coverage artifacts
+coverage/

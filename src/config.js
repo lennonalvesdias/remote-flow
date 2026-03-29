@@ -107,6 +107,39 @@ export const SERVER_CIRCUIT_BREAKER_COOLDOWN_MS = parseInt(process.env.SERVER_CI
 /** Timeout em ms para aprovação interativa de permissão antes do auto-approve (padrão: 60000) */
 export const PERMISSION_TIMEOUT_MS = parseInt(process.env.PERMISSION_TIMEOUT_MS || '60000', 10);
 
+// ─── Transcrição de Voz ───────────────────────────────────────────────────────
+
+/** Provider de transcrição: 'local' (Whisper server), 'openai' ou 'groq' */
+export const TRANSCRIPTION_PROVIDER = process.env.TRANSCRIPTION_PROVIDER || 'local';
+
+/** URL base do Whisper Server local */
+export const WHISPER_URL = process.env.WHISPER_URL || 'http://127.0.0.1:8765';
+
+/** API key para providers externos (OpenAI, Groq) */
+export const TRANSCRIPTION_API_KEY = process.env.TRANSCRIPTION_API_KEY || '';
+
+/** Modelo de transcrição para APIs externas (padrão: whisper-1) */
+export const TRANSCRIPTION_API_MODEL = process.env.TRANSCRIPTION_API_MODEL || 'whisper-1';
+
+/** Idioma para dica de transcrição enviada ao Whisper e APIs externas (padrão: pt) */
+export const WHISPER_LANGUAGE = process.env.WHISPER_LANGUAGE || 'pt';
+
+/** Duração máxima de áudio aceita em segundos (padrão: 300 = 5 min) */
+export const VOICE_MAX_DURATION_SECS = parseInt(process.env.VOICE_MAX_DURATION_SECS || '300', 10);
+
+/** Exibir transcrição na thread antes de enviar ao OpenCode */
+export const VOICE_SHOW_TRANSCRIPT = process.env.VOICE_SHOW_TRANSCRIPT !== 'false';
+
+/** Timeout em ms para download do áudio da CDN do Discord (padrão: 30s) */
+export const VOICE_CDN_DOWNLOAD_TIMEOUT_MS = parseInt(process.env.VOICE_CDN_DOWNLOAD_TIMEOUT_MS || '30000', 10);
+
+/**
+ * Timeout em ms para a chamada de transcrição ao Whisper Server (padrão: 120s).
+ * Deve ser alto o suficiente para cobrir a compilação inicial de kernels CUDA
+ * na primeira inferência real (cold-start de GPU pode levar 15–60s).
+ */
+export const WHISPER_TRANSCRIPTION_TIMEOUT_MS = parseInt(process.env.WHISPER_TRANSCRIPTION_TIMEOUT_MS || '120000', 10);
+
 // ─── GitHub ───────────────────────────────────────────────────────────────────
 
 /** Personal Access Token do GitHub (fine-grained ou classic) */

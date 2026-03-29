@@ -143,4 +143,22 @@ describe('PlanReviewDetector', () => {
     // Não deve emitir 'error' nem crashar
     expect(errorSpy).not.toHaveBeenCalled();
   });
+
+  it('registra falha consecutiva quando servidor está inacessível (plan === null, _planReady false)', async () => {
+    // Mock padrão retorna null → servidor inacessível e _planReady ainda é false
+    detector.start();
+    await vi.advanceTimersByTimeAsync(150); // dispara 1 poll
+
+    expect(detector._consecutiveFailures).toBe(1);
+  });
+
+  it('_poll() sai silenciosamente quando _active é false', async () => {
+    detector.start();
+    detector.stop(); // _active = false, timer cancelado
+
+    // Chamada direta a _poll quando inativo: deve retornar sem alterar estado
+    await detector._poll();
+
+    expect(detector._consecutiveFailures).toBe(0);
+  });
 });
