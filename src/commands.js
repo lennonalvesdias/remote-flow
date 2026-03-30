@@ -602,7 +602,9 @@ async function handleStatus(interaction, sessionManager) {
       { name: 'Usuário', value: `<@${s.userId}>`, inline: true },
       { name: 'Iniciada', value: formatAge(s.createdAt) + ' atrás', inline: true },
       { name: 'Última atividade', value: formatAge(s.lastActivityAt) + ' atrás', inline: true },
-      { name: 'Caminho', value: `\`${s.projectPath}\``, inline: false }
+      { name: 'Caminho', value: `\`${s.projectPath}\``, inline: false },
+      { name: 'Branch', value: s.gitBranch || 'N/A', inline: true },
+      { name: 'Commit', value: s.gitCommit ? `\`${s.gitCommit.hash}\`` : 'N/A', inline: true }
     )
     .setColor(s.status === 'error' ? 0xff0000 : s.status === 'finished' ? 0x00ff00 : 0x5865f2)
     .setTimestamp();
@@ -2046,6 +2048,8 @@ async function createSessionInThread({ interaction, sessionManager, projectPath,
       model,
     });
 
+    await session.loadGitInfo();
+
     const streamHandler = new StreamHandler(thread, session);
     streamHandler.start();
 
@@ -2122,6 +2126,8 @@ function buildSessionEmbed({ mode, projectName, projectPath, session }) {
     .addFields(
       { name: 'Projeto', value: `\`${projectName}\``, inline: true },
       { name: 'Modo', value: mode, inline: true },
+      { name: 'Branch', value: session.gitBranch || 'N/A', inline: true },
+      { name: 'Commit', value: session.gitCommit ? `\`${session.gitCommit.hash}\`` : 'N/A', inline: true },
       { name: 'Caminho', value: `\`${projectPath}\``, inline: false }
     )
     .setColor(mode === 'plan' ? 0xfee75c : 0x57f287)

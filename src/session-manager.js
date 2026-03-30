@@ -7,6 +7,7 @@ import { EventEmitter } from 'events';
 import { randomUUID } from 'crypto';
 import { basename } from 'path';
 import { stripAnsi, debug } from './utils.js';
+import { getCurrentBranch, getLastCommit } from './git.js';
 import { ServerManager } from './server-manager.js';
 import { PlanReviewDetector } from './plan-detector.js';
 import { SESSION_TIMEOUT_MS, MAX_BUFFER } from './config.js';
@@ -74,6 +75,8 @@ class OpenCodeSession extends EventEmitter {
     this.status = 'idle';
     this.apiSessionId = null;
     this.server = null;
+    this.gitBranch = null;
+    this.gitCommit = null;
     this.outputBuffer = '';
     this.pendingOutput = '';
     this._recentOutput = '';
@@ -635,6 +638,26 @@ class OpenCodeSession extends EventEmitter {
   }
 
   /**
+   * Carrega informações git do projeto (branch atual e último commit).
+   * Em caso de erro, define valores fallback sem lançar exceção.
+   */
+  async loadGitInfo() {
+    try {
+      const [branch, commit] = await Promise.all([
+        getCurrentBranch(this.projectPath),
+        getLastCommit(this.projectPath),
+      ]);
+      this.gitBranch = branch || 'N/A';
+      this.gitCommit = commit;
+      debug('OpenCodeSession', '🌿 Git info carregado: branch=%s commit=%s', this.gitBranch, this.gitCommit.hash);
+    } catch (err) {
+      console.warn('[SessionManager] ⚠️ Falha ao carregar git info para %s: %s', this.projectPath, err.message);
+      this.gitBranch = 'N/A';
+      this.gitCommit = { hash: 'N/A', subject: '' };
+    }
+  }
+
+  /**
    * Retorna um resumo serializado da sessão.
    * @returns {object}
    */
@@ -651,6 +674,8 @@ class OpenCodeSession extends EventEmitter {
       closedAt: this.closedAt,
       project: basename(this.projectPath),
       lastActivityAt: this.closedAt ?? this.lastActivityAt,
+      gitBranch: this.gitBranch,
+      gitCommit: this.gitCommit,
     };
   }
 }

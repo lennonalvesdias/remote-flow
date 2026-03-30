@@ -107,6 +107,24 @@ export async function getCurrentBranch(cwd) {
   return git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
 }
 
+/**
+ * Retorna o hash curto e a mensagem do último commit.
+ * @param {string} cwd - Diretório do repositório
+ * @returns {Promise<{ hash: string, subject: string }>}
+ */
+export async function getLastCommit(cwd) {
+  try {
+    const output = await git(['log', '-1', '--format=%h|%s'], cwd);
+    const pipeIndex = output.indexOf('|');
+    if (pipeIndex === -1) return { hash: output.slice(0, 7) || 'unknown', subject: '' };
+    const hash = output.slice(0, pipeIndex);
+    const subject = output.slice(pipeIndex + 1);
+    return { hash, subject };
+  } catch {
+    return { hash: 'unknown', subject: '' };
+  }
+}
+
 // ─── Operações de branch e commit ─────────────────────────────────────────────
 
 /**

@@ -6,6 +6,22 @@ O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.
 
 ---
 
+## [1.8.5] — 2026-03-30
+
+### 🔧 Changed
+- Removidos emojis `🌿` e `🔖` dos labels de branch e commit nos embeds de sessão para padronização visual
+
+---
+
+## [1.8.4] — 2026-03-30
+
+### ✨ Added
+- `src/git.js`: nova função `getLastCommit(cwd)` — retorna hash curto e mensagem do último commit do repositório
+- `src/session-manager.js`: propriedades `gitBranch` e `gitCommit` na sessão; método `loadGitInfo()` para populá-las assincronamente sem lançar exceções
+- `src/commands.js`: exibe branch atual (`🌿 Branch`) e ID do último commit (`🔖 Commit`) nas informações da sessão (`/status` e embed inicial)
+
+---
+
 ## [1.8.3] — 2026-03-29
 
 ### 🐛 Fixed

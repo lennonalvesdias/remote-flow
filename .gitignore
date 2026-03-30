@@ -40,3 +40,6 @@ whisper_server/__pycache__/
 
 # Coverage artifacts
 coverage/
+
+# Draft files
+drafts/
