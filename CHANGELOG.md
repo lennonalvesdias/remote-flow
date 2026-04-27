@@ -6,6 +6,20 @@ O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.
 
 ---
 
+## [1.9.1] — 2026-04-26
+
+### 🐛 Fixed
+- `docker-compose.yml`: substituído `deploy.resources` (ignorado em Docker Compose standalone) por `mem_limit`, `cpus` e `mem_reservation` no nível do serviço — limites de CPU e memória agora funcionam corretamente sem Docker Swarm.
+
+### ♻️ Refactored
+- Criado `src/log-utils.js` com `getSecretValues()`, `redactSecrets()` e `redactData()` compartilhados. `logger.js` e `audit.js` agora importam essas funções em vez de duplicá-las, eliminando risco de divergência futura.
+- Renomeada função `handleCommandoAutocomplete` → `handleCommandAutocomplete` em `src/command-session.js` e `src/commands.js` (typo: 'o' extra no nome).
+
+### 📝 Docs
+- `.env.example`: adicionada nota que o contador de `TRANSCRIPTION_DAILY_LIMIT_SECS` é mantido em memória e reseta ao reiniciar o processo.
+
+---
+
 ## [1.9.0] — 2026-03-30
 
 ### ✨ Adicionado

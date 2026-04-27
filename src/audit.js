@@ -8,6 +8,7 @@ import { appendFile, mkdir, stat, rename } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { debug } from './utils.js';
 import { AUDIT_LOG_PATH } from './config.js';
+import { redactSecrets, redactData } from './log-utils.js';
 
 // ─── Estado interno ───────────────────────────────────────────────────────────
 
@@ -16,33 +17,6 @@ let _initialized = false;
 
 /** Tamanho máximo do arquivo de auditoria antes de rotacionar (padrão: 50 MB) */
 const MAX_AUDIT_BYTES = parseInt(process.env.AUDIT_LOG_MAX_BYTES || String(50 * 1024 * 1024), 10);
-
-// ─── Redação de segredos ──────────────────────────────────────────────────────
-
-let _secretValues = null;
-
-function getSecretValues() {
-  if (_secretValues) return _secretValues;
-  _secretValues = [
-    process.env.DISCORD_TOKEN,
-    process.env.GITHUB_TOKEN,
-    process.env.TRANSCRIPTION_API_KEY,
-  ].filter((v) => v && v.length > 8);
-  return _secretValues;
-}
-
-function redactSecrets(str) {
-  let result = String(str);
-  for (const secret of getSecretValues()) {
-    result = result.replaceAll(secret, '[REDACTED]');
-  }
-  return result;
-}
-
-function redactData(obj) {
-  if (!obj || typeof obj !== 'object') return obj;
-  return JSON.parse(redactSecrets(JSON.stringify(obj)));
-}
 
 // ─── Helpers internos ─────────────────────────────────────────────────────────
 

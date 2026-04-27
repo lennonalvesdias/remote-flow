@@ -296,7 +296,7 @@ export async function handleRunCommand(interaction, sessionManager) {
   await interaction.editReply(`⚙️ Comando \`${commandText}\` enviado para a sessão.`);
 }
 
-export async function handleCommandoAutocomplete(interaction, focusedValue) {
+export async function handleCommandAutocomplete(interaction, focusedValue) {
   const commands = await listOpenCodeCommands();
   const lowerValue = focusedValue.toLowerCase();
 

@@ -7,6 +7,7 @@
 import { appendFile, mkdir, readFile, stat, rename } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { LOG_FILE_PATH } from './config.js';
+import { redactSecrets } from './log-utils.js';
 
 // ─── Estado interno ───────────────────────────────────────────────────────────
 
@@ -15,37 +16,6 @@ let _initialized = false;
 
 /** Tamanho máximo do arquivo de log antes de rotacionar (padrão: 50 MB) */
 const MAX_LOG_BYTES = parseInt(process.env.APP_LOG_MAX_BYTES || String(50 * 1024 * 1024), 10);
-
-// ─── Redação de segredos ──────────────────────────────────────────────────────
-
-/**
- * Lazy-loaded list of secret values to redact from log output.
- * Read after dotenv loads so values are populated.
- */
-let _secretValues = null;
-
-function getSecretValues() {
-  if (_secretValues) return _secretValues;
-  _secretValues = [
-    process.env.DISCORD_TOKEN,
-    process.env.GITHUB_TOKEN,
-    process.env.TRANSCRIPTION_API_KEY,
-  ].filter((v) => v && v.length > 8);
-  return _secretValues;
-}
-
-/**
- * Substitui valores de segredos conhecidos por [REDACTED] na string fornecida.
- * @param {string} str
- * @returns {string}
- */
-function redactSecrets(str) {
-  let result = String(str);
-  for (const secret of getSecretValues()) {
-    result = result.replaceAll(secret, '[REDACTED]');
-  }
-  return result;
-}
 
 // ─── Helpers internos ─────────────────────────────────────────────────────────
 

@@ -22,7 +22,7 @@ import {
   handleListProjects,
   handleHistory,
   handleRunCommand,
-  handleCommandoAutocomplete,
+  handleCommandAutocomplete,
   handleDiffCommand,
   handlePassthrough,
   handleFila,
@@ -325,7 +325,7 @@ export async function handleAutocomplete(interaction) {
   if (commandName === 'command') {
     const focusedOption = interaction.options.getFocused(true);
     if (focusedOption.name === 'name') {
-      await handleCommandoAutocomplete(interaction, focusedOption.value);
+      await handleCommandAutocomplete(interaction, focusedOption.value);
     }
     return;
   }
