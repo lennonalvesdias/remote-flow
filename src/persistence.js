@@ -62,13 +62,16 @@ async function readFile() {
 }
 
 /**
- * Grava o arquivo de persistência.
+ * Grava o arquivo de persistência de forma atômica (write-to-tmp → rename).
+ * Previne corrupção do JSON em caso de crash durante a escrita.
  * @param {{version: number, sessions: object[]}} data
  * @returns {Promise<void>}
  */
 async function writeFile(data) {
   await ensureDir();
-  await fs.writeFile(PERSISTENCE_FILE, JSON.stringify(data, null, 2), 'utf-8');
+  const tmp = PERSISTENCE_FILE + '.tmp';
+  await fs.writeFile(tmp, JSON.stringify(data, null, 2), 'utf-8');
+  await fs.rename(tmp, PERSISTENCE_FILE);
 }
 
 // ─── Fila de escrita ──────────────────────────────────────────────────────────

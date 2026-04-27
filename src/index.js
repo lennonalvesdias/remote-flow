@@ -25,6 +25,7 @@ import { initAudit, audit } from './audit.js';
 import { initLogger, logError, logWarn } from './logger.js';
 import { loadModels } from './model-loader.js';
 import { provider as transcriptionProvider } from './transcription-provider.js';
+import { checkBudget, recordUsage } from './transcription-budget.js';
 import { getVoiceAttachment } from './voice-utils.js';
 
 // ─── Validação de configuração ────────────────────────────────────────────────
@@ -243,6 +244,15 @@ client.on('messageCreate', async (message) => {
       return;
     }
 
+    // Verifica orçamento diário antes de chamar API externa
+    try {
+      checkBudget(duration);
+    } catch (budgetErr) {
+      await message.react('🚫').catch(() => {});
+      await message.reply(`⚠️ ${budgetErr.message}`).catch(() => {});
+      return;
+    }
+
     // Reação visual imediata
     try { await message.react('🎙️'); } catch { /* ignora */ }
 
@@ -288,6 +298,8 @@ client.on('messageCreate', async (message) => {
       if (queueResult.queued) {
         await message.reply(`📮 Transcrição enfileirada (posição ${queueResult.position}).`).catch(() => {});
       }
+
+      recordUsage(transcribedDuration ?? duration);
 
       await audit(
         'message.voice',

@@ -4,7 +4,7 @@ import { startHealthServer } from '../src/health.js'
 
 // Usa porta 0 para que o SO atribua uma porta aleatória;
 // impede conflito com o server.listen(HEALTH_PORT) interno de startHealthServer.
-vi.mock('../src/config.js', () => ({ HEALTH_PORT: 0 }))
+vi.mock('../src/config.js', () => ({ HEALTH_PORT: 0, HEALTH_HOST: '127.0.0.1' }))
 
 function httpGet(url) {
   return new Promise((resolve, reject) => {

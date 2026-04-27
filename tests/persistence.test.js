@@ -11,6 +11,7 @@ const mockFs = vi.hoisted(() => ({
   readFile: vi.fn(),
   writeFile: vi.fn(),
   mkdir: vi.fn(),
+  rename: vi.fn(),
 }));
 
 vi.mock('node:fs/promises', () => ({
@@ -35,9 +36,11 @@ describe('persistence', () => {
     mockFs.readFile.mockReset();
     mockFs.writeFile.mockReset();
     mockFs.mkdir.mockReset();
+    mockFs.rename.mockReset();
     // Stubs padrão para operações de escrita
     mockFs.mkdir.mockResolvedValue(undefined);
     mockFs.writeFile.mockResolvedValue(undefined);
+    mockFs.rename.mockResolvedValue(undefined);
     // Importação dinâmica obtém instância fresca do módulo
     const mod = await import('../src/persistence.js');
     loadSessions = mod.loadSessions;

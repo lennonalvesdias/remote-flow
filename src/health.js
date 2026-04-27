@@ -2,7 +2,7 @@
 // Endpoint HTTP de health check para monitoramento externo e Docker HEALTHCHECK
 
 import { createServer } from 'http';
-import { HEALTH_PORT } from './config.js';
+import { HEALTH_PORT, HEALTH_HOST } from './config.js';
 
 /**
  * Inicia um servidor HTTP de health check.
@@ -73,8 +73,8 @@ export function startHealthServer({ sessionManager, serverManager, startedAt }) 
     }
   });
 
-  server.listen(HEALTH_PORT, '0.0.0.0', () => {
-    console.log(`🩺 Health check disponível em http://0.0.0.0:${HEALTH_PORT}/health`);
+  server.listen(HEALTH_PORT, HEALTH_HOST, () => {
+    console.log(`🩺 Health check disponível em http://${HEALTH_HOST}:${HEALTH_PORT}/health`);
   });
 
   server.on('error', (err) => {

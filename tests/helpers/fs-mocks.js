@@ -204,6 +204,33 @@ export function createFsMock(initialFiles = {}) {
     },
 
     /**
+     * Move/renomeia um arquivo (src → dest), sobrescrevendo dest se existir.
+     * @param {string} src - Caminho de origem
+     * @param {string} dest - Caminho de destino
+     * @returns {Promise<void>}
+     */
+    async rename(src, dest) {
+      const normalizedSrc = normalizePath(String(src))
+      const normalizedDest = normalizePath(String(dest))
+      if (!fileStore.has(normalizedSrc)) throwEnoent(src)
+      const content = fileStore.get(normalizedSrc)
+      fileStore.delete(normalizedSrc)
+      registerParentDirs(normalizedDest)
+      fileStore.set(normalizedDest, content)
+    },
+
+    /**
+     * Remove um arquivo. Lança ENOENT se não encontrado.
+     * @param {string} filePath - Caminho a remover
+     * @returns {Promise<void>}
+     */
+    async unlink(filePath) {
+      const normalized = normalizePath(String(filePath))
+      if (!fileStore.has(normalized)) throwEnoent(filePath)
+      fileStore.delete(normalized)
+    },
+
+    /**
      * Remove um arquivo ou diretório (com suporte a recursive e force).
      * @param {string} filePath - Caminho a remover
      * @param {Object} [opts] - Opções (recursive: bool, force: bool)

@@ -7,6 +7,26 @@ import { debug } from './utils.js';
 import { parseSSEStream } from './sse-parser.js';
 import { DEFAULT_TIMEOUT_MS } from './config.js';
 
+// ─── Validação de resposta ────────────────────────────────────────────────────
+
+/**
+ * Valida que o objeto recebido possui os campos obrigatórios com os tipos esperados.
+ * Lança um erro descritivo se a estrutura for inválida, tornando falhas de API detectáveis cedo.
+ * @param {unknown} value
+ * @param {Record<string, string>} shape - mapa campo → tipo esperado (typeof)
+ * @param {string} context - rota da API, para mensagens de erro
+ */
+function assertShape(value, shape, context) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`Resposta inválida de ${context}: esperado objeto, recebido ${Array.isArray(value) ? 'array' : typeof value}`);
+  }
+  for (const [field, type] of Object.entries(shape)) {
+    if (typeof value[field] !== type) {
+      throw new Error(`Resposta inválida de ${context}: campo '${field}' esperado ${type}, recebido ${typeof value[field]}`);
+    }
+  }
+}
+
 // ─── Classe principal ─────────────────────────────────────────────────────────
 
 /**
@@ -34,7 +54,9 @@ export class OpenCodeClient {
       const body = await response.text();
       throw new Error(`POST /session falhou: ${response.status} ${body}`);
     }
-    return response.json();
+    const data = await response.json();
+    assertShape(data, { id: 'string' }, 'POST /session');
+    return data;
   }
 
   /**

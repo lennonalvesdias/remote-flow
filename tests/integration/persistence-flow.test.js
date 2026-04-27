@@ -28,7 +28,15 @@ const store = vi.hoisted(() => {
     files.delete(filePath)
   })
 
-  return { files, mkdir, readFile, writeFile, unlink }
+  const rename = vi.fn().mockImplementation(async (src, dest) => {
+    if (!files.has(src)) {
+      throw Object.assign(new Error(`ENOENT: no such file: ${src}`), { code: 'ENOENT' })
+    }
+    files.set(dest, files.get(src))
+    files.delete(src)
+  })
+
+  return { files, mkdir, readFile, writeFile, unlink, rename }
 })
 
 vi.mock('node:fs/promises', () => ({
@@ -37,6 +45,7 @@ vi.mock('node:fs/promises', () => ({
   readFile: store.readFile,
   writeFile: store.writeFile,
   unlink: store.unlink,
+  rename: store.rename,
 }))
 
 vi.mock('../../src/config.js', () => ({
@@ -55,6 +64,7 @@ describe('persistence-flow — ciclo completo de persistência', () => {
     store.readFile.mockClear()
     store.writeFile.mockClear()
     store.unlink.mockClear()
+    store.rename.mockClear()
 
     // vi.resetModules() força reimportação com _dirEnsured=false e _writeQueue novo
     vi.resetModules()

@@ -4,7 +4,7 @@
  * Nunca lança exceções para fora — falhas de I/O são absorvidas para não derrubar o bot.
  */
 
-import { appendFile, mkdir, readFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, stat, rename } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { LOG_FILE_PATH } from './config.js';
 
@@ -12,6 +12,40 @@ import { LOG_FILE_PATH } from './config.js';
 
 /** Flag para evitar chamadas redundantes de mkdir após a primeira inicialização. */
 let _initialized = false;
+
+/** Tamanho máximo do arquivo de log antes de rotacionar (padrão: 50 MB) */
+const MAX_LOG_BYTES = parseInt(process.env.APP_LOG_MAX_BYTES || String(50 * 1024 * 1024), 10);
+
+// ─── Redação de segredos ──────────────────────────────────────────────────────
+
+/**
+ * Lazy-loaded list of secret values to redact from log output.
+ * Read after dotenv loads so values are populated.
+ */
+let _secretValues = null;
+
+function getSecretValues() {
+  if (_secretValues) return _secretValues;
+  _secretValues = [
+    process.env.DISCORD_TOKEN,
+    process.env.GITHUB_TOKEN,
+    process.env.TRANSCRIPTION_API_KEY,
+  ].filter((v) => v && v.length > 8);
+  return _secretValues;
+}
+
+/**
+ * Substitui valores de segredos conhecidos por [REDACTED] na string fornecida.
+ * @param {string} str
+ * @returns {string}
+ */
+function redactSecrets(str) {
+  let result = String(str);
+  for (const secret of getSecretValues()) {
+    result = result.replaceAll(secret, '[REDACTED]');
+  }
+  return result;
+}
 
 // ─── Helpers internos ─────────────────────────────────────────────────────────
 
@@ -30,15 +64,35 @@ async function ensureDir() {
 }
 
 /**
+ * Rotaciona o arquivo de log se exceder MAX_LOG_BYTES.
+ * O arquivo atual é movido para .1; qualquer .1 anterior é sobrescrito.
+ * @returns {Promise<void>}
+ */
+async function rotateIfNeeded() {
+  try {
+    const stats = await stat(LOG_FILE_PATH);
+    if (stats.size >= MAX_LOG_BYTES) {
+      await rename(LOG_FILE_PATH, LOG_FILE_PATH + '.1');
+    }
+  } catch {
+    // Arquivo inexistente ou erro de stat — nada a fazer
+  }
+}
+
+/**
  * Serializa e persiste uma entrada de log no arquivo.
  * @param {'info'|'warn'|'error'} level
  * @param {string} component
  * @param {string} message
+ * @param {string} [correlationId]
  * @returns {Promise<void>}
  */
-async function writeLog(level, component, message) {
+async function writeLog(level, component, message, correlationId) {
   await ensureDir();
-  const line = JSON.stringify({ ts: new Date().toISOString(), level, component, message }) + '\n';
+  await rotateIfNeeded();
+  const entry = { ts: new Date().toISOString(), level, component, message: redactSecrets(message) };
+  if (correlationId) entry.correlationId = correlationId;
+  const line = JSON.stringify(entry) + '\n';
   try {
     await appendFile(LOG_FILE_PATH, line, 'utf-8');
   } catch {
@@ -69,9 +123,9 @@ export async function initLogger() {
  * @param {string} message - Mensagem de log
  * @returns {Promise<void>}
  */
-export async function logInfo(component, message) {
+export async function logInfo(component, message, correlationId) {
   console.log(`[${component}] ${message}`);
-  await writeLog('info', component, message);
+  await writeLog('info', component, message, correlationId);
 }
 
 /**
@@ -80,9 +134,9 @@ export async function logInfo(component, message) {
  * @param {string} message - Mensagem de log
  * @returns {Promise<void>}
  */
-export async function logWarn(component, message) {
+export async function logWarn(component, message, correlationId) {
   console.warn(`[${component}] ${message}`);
-  await writeLog('warn', component, message);
+  await writeLog('warn', component, message, correlationId);
 }
 
 /**
@@ -91,9 +145,9 @@ export async function logWarn(component, message) {
  * @param {string} message - Mensagem de log
  * @returns {Promise<void>}
  */
-export async function logError(component, message) {
+export async function logError(component, message, correlationId) {
   console.error(`[${component}] ${message}`);
-  await writeLog('error', component, message);
+  await writeLog('error', component, message, correlationId);
 }
 
 /**

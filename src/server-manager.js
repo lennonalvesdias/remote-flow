@@ -258,7 +258,8 @@ class OpenCodeServer extends EventEmitter {
       reconnectScheduled = true;
 
       const isConnectionDrop = err?.message === 'terminated' || err?.code === 'ECONNRESET';
-      const delay = Math.min(1000 * Math.pow(2, attempt), 30_000);
+      const baseDelay = Math.min(1000 * Math.pow(2, attempt), 30_000);
+      const delay = baseDelay * (0.5 + Math.random() * 0.5);
 
       if (isConnectionDrop) {
         console.warn('[OpenCodeServer] 🔌 SSE drop detectado (ECONNRESET) — reconectando em %dms', delay);

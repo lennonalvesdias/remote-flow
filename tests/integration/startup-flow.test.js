@@ -32,6 +32,19 @@ vi.mock('node:fs/promises', () => {
     unlink: vi.fn().mockImplementation(async (filePath) => {
       fsStore.files.delete(filePath)
     }),
+    rename: vi.fn().mockImplementation(async (src, dest) => {
+      if (!fsStore.files.has(src)) {
+        throw Object.assign(new Error(`ENOENT: ${src}`), { code: 'ENOENT' })
+      }
+      fsStore.files.set(dest, fsStore.files.get(src))
+      fsStore.files.delete(src)
+    }),
+    stat: vi.fn().mockImplementation(async (filePath) => {
+      if (!fsStore.files.has(filePath)) {
+        throw Object.assign(new Error(`ENOENT: ${filePath}`), { code: 'ENOENT' })
+      }
+      return { size: 0, isFile: () => true, isDirectory: () => false }
+    }),
   }
   return { default: fns, ...fns }
 })

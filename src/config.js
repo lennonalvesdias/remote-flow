@@ -70,6 +70,9 @@ export const MAX_SESSIONS_PER_PROJECT = parseInt(process.env.MAX_SESSIONS_PER_PR
 /** Porta do endpoint de health check */
 export const HEALTH_PORT = parseInt(process.env.HEALTH_PORT || '9090', 10);
 
+/** Interface de rede do health check (padrão: 127.0.0.1 — somente loopback) */
+export const HEALTH_HOST = process.env.HEALTH_HOST || '127.0.0.1';
+
 /** Caminho do arquivo de persistência de sessões (opcional) */
 export const PERSISTENCE_PATH = process.env.PERSISTENCE_PATH || null;
 
